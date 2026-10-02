@@ -1,12 +1,14 @@
 """Estructura visual principal del dashboard Quirón.
 
 Este módulo define la composición de la interfaz y los identificadores
-que utilizarán los callbacks. No lee archivos, no filtra datos y no
-calcula indicadores.
+que utilizarán los callbacks.
 
-Los datos iniciales, las opciones de filtro y la figura del mapa llegan
-desde ``server.py``. Las actualizaciones posteriores serán realizadas
-por ``callbacks.py``.
+No lee archivos, no filtra datos, no calcula indicadores y no genera
+exportaciones. Esas responsabilidades corresponden a otros módulos.
+
+Los datos iniciales, la metadata, las opciones de filtro y la figura del
+mapa llegan desde ``server.py``. Las actualizaciones posteriores serán
+realizadas por ``callbacks.py``.
 """
 
 from dash import dash_table, dcc, html
@@ -46,7 +48,9 @@ def _encabezado():
                     "aria-hidden": "true",
                 },
             ),
-            html.H1("Quirón"),
+            html.H1(
+                "Quirón"
+            ),
             html.P(
                 (
                     "Radar de oferta quirúrgica "
@@ -65,6 +69,315 @@ def _encabezado():
     )
 
 
+def _dato_trazabilidad(
+    etiqueta,
+    valor,
+):
+    """Construye un dato individual del bloque de trazabilidad."""
+
+    return html.Div(
+        className="dato-trazabilidad",
+        children=[
+            html.Span(
+                etiqueta,
+                className=(
+                    "dato-trazabilidad-etiqueta"
+                ),
+            ),
+            html.Span(
+                str(valor),
+                className=(
+                    "dato-trazabilidad-valor"
+                ),
+            ),
+        ],
+    )
+
+
+def _enlace_fuente(
+    metadata,
+):
+    """Construye el enlace visible a la fuente documentada."""
+
+    url_fuente = metadata.get(
+        "url_fuente",
+        "",
+    )
+
+    if not url_fuente:
+        return html.Span(
+            "No disponible",
+            className=(
+                "dato-trazabilidad-valor"
+            ),
+        )
+
+    return html.A(
+        "Consultar fuente oficial",
+        href=url_fuente,
+        target="_blank",
+        rel="noopener noreferrer",
+        className="enlace-fuente",
+    )
+
+
+def _cobertura_metadata(
+    metadata,
+):
+    """Obtiene el bloque de cobertura calculado en metadata.py."""
+
+    cobertura = metadata.get(
+        "cobertura_datos",
+        {},
+    )
+
+    return {
+        "total_registros": cobertura.get(
+            "total_registros",
+            0,
+        ),
+        "registros_quirurgicos": cobertura.get(
+            "registros_quirurgicos",
+            0,
+        ),
+        "sedes_quirurgicas": cobertura.get(
+            "sedes_quirurgicas",
+            0,
+        ),
+        "porcentaje_geocodificacion": cobertura.get(
+            "porcentaje_geocodificacion",
+            0.0,
+        ),
+    }
+
+
+def _panel_trazabilidad(
+    metadata,
+):
+    """Presenta la fuente, el corte y las limitaciones del análisis."""
+
+    cobertura = _cobertura_metadata(
+        metadata
+    )
+
+    return html.Section(
+        className="panel-trazabilidad",
+        **{
+            "aria-labelledby": (
+                "titulo-trazabilidad"
+            ),
+        },
+        children=[
+            html.Div(
+                className=(
+                    "encabezado-trazabilidad"
+                ),
+                children=[
+                    html.Div(
+                        children=[
+                            html.H2(
+                                (
+                                    "Fuente y trazabilidad "
+                                    "de los datos"
+                                ),
+                                id=(
+                                    "titulo-trazabilidad"
+                                ),
+                            ),
+                            html.P(
+                                (
+                                    "Información metodológica "
+                                    "del conjunto utilizado para "
+                                    "construir los indicadores, "
+                                    "filtros y visualizaciones."
+                                ),
+                                className=(
+                                    "descripcion-seccion"
+                                ),
+                            ),
+                        ],
+                    ),
+                    html.Span(
+                        (
+                            "Oferta registrada · "
+                            "No corresponde a datos "
+                            "en tiempo real"
+                        ),
+                        className=(
+                            "etiqueta-trazabilidad"
+                        ),
+                    ),
+                ],
+            ),
+            html.Div(
+                className=(
+                    "rejilla-trazabilidad"
+                ),
+                children=[
+                    _dato_trazabilidad(
+                        "Entidad publicadora",
+                        metadata.get(
+                            "entidad_publicadora",
+                            "No disponible",
+                        ),
+                    ),
+                    _dato_trazabilidad(
+                        "Portal de publicación",
+                        metadata.get(
+                            "portal_publicacion",
+                            "No disponible",
+                        ),
+                    ),
+                    _dato_trazabilidad(
+                        "Fecha de corte",
+                        metadata.get(
+                            "fecha_corte_legible",
+                            "No disponible",
+                        ),
+                    ),
+                    _dato_trazabilidad(
+                        "Cobertura",
+                        metadata.get(
+                            "cobertura_geografica",
+                            "No disponible",
+                        ),
+                    ),
+                    _dato_trazabilidad(
+                        "Archivo principal",
+                        metadata.get(
+                            "archivo_principal",
+                            "No disponible",
+                        ),
+                    ),
+                    _dato_trazabilidad(
+                        "Unidad de análisis",
+                        metadata.get(
+                            "unidad_analisis",
+                            "No disponible",
+                        ),
+                    ),
+                    _dato_trazabilidad(
+                        "Registros cargados",
+                        _formatear_numero(
+                            cobertura[
+                                "total_registros"
+                            ]
+                        ),
+                    ),
+                    _dato_trazabilidad(
+                        "Registros quirúrgicos",
+                        _formatear_numero(
+                            cobertura[
+                                "registros_quirurgicos"
+                            ]
+                        ),
+                    ),
+                    _dato_trazabilidad(
+                        "Sedes quirúrgicas",
+                        _formatear_numero(
+                            cobertura[
+                                "sedes_quirurgicas"
+                            ]
+                        ),
+                    ),
+                    _dato_trazabilidad(
+                        "Cobertura geográfica",
+                        (
+                            f"{cobertura['porcentaje_geocodificacion']:.1f} %"
+                        ),
+                    ),
+                    html.Div(
+                        className=(
+                            "dato-trazabilidad"
+                        ),
+                        children=[
+                            html.Span(
+                                "Fuente oficial",
+                                className=(
+                                    "dato-trazabilidad-etiqueta"
+                                ),
+                            ),
+                            _enlace_fuente(
+                                metadata
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className=(
+                    "advertencias-trazabilidad"
+                ),
+                children=[
+                    html.Div(
+                        className=(
+                            "advertencia-metodologica"
+                        ),
+                        children=[
+                            html.Span(
+                                "ⓘ",
+                                className=(
+                                    "advertencia-icono"
+                                ),
+                                **{
+                                    "aria-hidden": (
+                                        "true"
+                                    ),
+                                },
+                            ),
+                            html.P(
+                                metadata.get(
+                                    (
+                                        "advertencia_"
+                                        "interpretacion"
+                                    ),
+                                    (
+                                        "Los resultados deben "
+                                        "interpretarse según "
+                                        "el alcance de la fuente."
+                                    ),
+                                )
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        className=(
+                            "advertencia-metodologica"
+                        ),
+                        children=[
+                            html.Span(
+                                "⌖",
+                                className=(
+                                    "advertencia-icono"
+                                ),
+                                **{
+                                    "aria-hidden": (
+                                        "true"
+                                    ),
+                                },
+                            ),
+                            html.P(
+                                metadata.get(
+                                    (
+                                        "advertencia_"
+                                        "geocodificacion"
+                                    ),
+                                    (
+                                        "La representación "
+                                        "cartográfica depende "
+                                        "de la disponibilidad "
+                                        "de coordenadas válidas."
+                                    ),
+                                )
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
 def _campo_filtro(
     etiqueta,
     control,
@@ -75,7 +388,9 @@ def _campo_filtro(
     contenido = [
         html.Label(
             etiqueta,
-            className="filtro-etiqueta",
+            className=(
+                "filtro-etiqueta"
+            ),
         ),
         control,
     ]
@@ -84,7 +399,9 @@ def _campo_filtro(
         contenido.append(
             html.Small(
                 ayuda,
-                className="filtro-ayuda",
+                className=(
+                    "filtro-ayuda"
+                ),
             )
         )
 
@@ -108,20 +425,27 @@ def _panel_filtros(
         },
         children=[
             html.Div(
-                className="encabezado-filtros",
+                className=(
+                    "encabezado-filtros"
+                ),
                 children=[
                     html.Div(
                         children=[
                             html.H2(
-                                "Explorar la oferta",
-                                id="titulo-filtros",
+                                (
+                                    "Explorar "
+                                    "la oferta"
+                                ),
+                                id=(
+                                    "titulo-filtros"
+                                ),
                             ),
                             html.P(
                                 (
                                     "Combina uno o varios "
                                     "criterios para actualizar "
-                                    "los indicadores, el mapa "
-                                    "y las tablas."
+                                    "los indicadores, el mapa, "
+                                    "las tablas y las descargas."
                                 ),
                                 className=(
                                     "descripcion-seccion"
@@ -143,7 +467,9 @@ def _panel_filtros(
                 ],
             ),
             html.Div(
-                className="rejilla-filtros",
+                className=(
+                    "rejilla-filtros"
+                ),
                 children=[
                     _campo_filtro(
                         "Servicio quirúrgico",
@@ -280,11 +606,15 @@ def _tarjeta_kpi(
                     valor
                 ),
                 id=identificador,
-                className="kpi-valor",
+                className=(
+                    "kpi-valor"
+                ),
             ),
             html.Span(
                 etiqueta,
-                className="kpi-etiqueta",
+                className=(
+                    "kpi-etiqueta"
+                ),
             ),
         ],
     )
@@ -293,7 +623,7 @@ def _tarjeta_kpi(
 def _panel_kpis(
     resumen,
 ):
-    """Agrupa los cinco indicadores principales."""
+    """Agrupa los indicadores principales."""
 
     return html.Section(
         className="panel-kpis",
@@ -394,9 +724,13 @@ def _tabla(
     """Construye una tabla actualizable por callback."""
 
     return html.Article(
-        className="tarjeta-tabla",
+        className=(
+            "tarjeta-tabla"
+        ),
         children=[
-            html.H3(titulo),
+            html.H3(
+                titulo
+            ),
             dash_table.DataTable(
                 id=identificador,
                 data=tabla.to_dict(
@@ -443,7 +777,9 @@ def _tabla(
                 style_data_conditional=[
                     {
                         "if": {
-                            "row_index": "odd",
+                            "row_index": (
+                                "odd"
+                            ),
                         },
                         "backgroundColor": (
                             "#F5F3FA"
@@ -509,7 +845,10 @@ def _resumen_cobertura_mapa(
             ),
             _dato_mapa(
                 sedes_sin_coordenadas,
-                "Sedes sin coordenadas",
+                (
+                    "Sedes sin "
+                    "coordenadas"
+                ),
                 (
                     "mapa-sedes-"
                     "sin-coordenadas"
@@ -517,7 +856,10 @@ def _resumen_cobertura_mapa(
             ),
             _dato_mapa(
                 f"{porcentaje:.1f} %",
-                "Cobertura geográfica",
+                (
+                    "Cobertura "
+                    "geográfica"
+                ),
                 "mapa-cobertura",
             ),
         ],
@@ -552,7 +894,9 @@ def _seccion_mapa(
                                     "geográfica "
                                     "de la oferta"
                                 ),
-                                id="titulo-mapa",
+                                id=(
+                                    "titulo-mapa"
+                                ),
                             ),
                             html.P(
                                 (
@@ -657,15 +1001,203 @@ def _seccion_tablas(
     )
 
 
-def _pie_de_pagina():
-    """Construye el pie institucional."""
+def _boton_descarga(
+    texto,
+    identificador,
+    descripcion,
+):
+    """Construye un botón con descripción accesible."""
+
+    return html.Div(
+        className=(
+            "opcion-descarga"
+        ),
+        children=[
+            html.Button(
+                texto,
+                id=identificador,
+                n_clicks=0,
+                type="button",
+                className=(
+                    "boton-descarga"
+                ),
+            ),
+            html.P(
+                descripcion,
+                className=(
+                    "descripcion-descarga"
+                ),
+            ),
+        ],
+    )
+
+
+def _panel_exportacion():
+    """Construye los controles de descarga de resultados."""
+
+    return html.Section(
+        className="panel-exportacion",
+        **{
+            "aria-labelledby": (
+                "titulo-exportacion"
+            ),
+        },
+        children=[
+            html.Div(
+                className=(
+                    "encabezado-exportacion"
+                ),
+                children=[
+                    html.Div(
+                        children=[
+                            html.H2(
+                                (
+                                    "Descargar resultados"
+                                ),
+                                id=(
+                                    "titulo-exportacion"
+                                ),
+                            ),
+                            html.P(
+                                (
+                                    "Las descargas de detalle "
+                                    "y resúmenes respetarán los "
+                                    "filtros activos en el "
+                                    "dashboard."
+                                ),
+                                className=(
+                                    "descripcion-seccion"
+                                ),
+                            ),
+                        ],
+                    ),
+                    html.Span(
+                        "Formato CSV · UTF-8",
+                        className=(
+                            "etiqueta-exportacion"
+                        ),
+                    ),
+                ],
+            ),
+            html.Div(
+                className=(
+                    "rejilla-exportacion"
+                ),
+                children=[
+                    _boton_descarga(
+                        (
+                            "Descargar detalle "
+                            "filtrado"
+                        ),
+                        (
+                            "boton-descargar-"
+                            "detalle"
+                        ),
+                        (
+                            "Una fila por combinación "
+                            "única de sede y servicio."
+                        ),
+                    ),
+                    _boton_descarga(
+                        (
+                            "Descargar resumen "
+                            "por servicio"
+                        ),
+                        (
+                            "boton-descargar-"
+                            "servicio"
+                        ),
+                        (
+                            "Número de sedes únicas "
+                            "por código de servicio."
+                        ),
+                    ),
+                    _boton_descarga(
+                        (
+                            "Descargar resumen "
+                            "por naturaleza"
+                        ),
+                        (
+                            "boton-descargar-"
+                            "naturaleza"
+                        ),
+                        (
+                            "Número de sedes únicas "
+                            "por naturaleza jurídica."
+                        ),
+                    ),
+                    _boton_descarga(
+                        (
+                            "Descargar metadata "
+                            "y trazabilidad"
+                        ),
+                        (
+                            "boton-descargar-"
+                            "metadata"
+                        ),
+                        (
+                            "Fuente, fecha de corte, "
+                            "cobertura y limitaciones."
+                        ),
+                    ),
+                ],
+            ),
+
+            # Los callbacks escribirán en la propiedad "data"
+            # de estos componentes. No son visibles en pantalla.
+            dcc.Download(
+                id=(
+                    "descarga-detalle"
+                )
+            ),
+            dcc.Download(
+                id=(
+                    "descarga-servicio"
+                )
+            ),
+            dcc.Download(
+                id=(
+                    "descarga-naturaleza"
+                )
+            ),
+            dcc.Download(
+                id=(
+                    "descarga-metadata"
+                )
+            ),
+        ],
+    )
+
+
+def _pie_de_pagina(
+    metadata,
+):
+    """Construye el pie institucional con la fecha de corte."""
+
+    fecha_corte = metadata.get(
+        "fecha_corte_legible",
+        "No disponible",
+    )
 
     return html.Footer(
         className="pie",
-        children=(
-            "Quirón · Proyecto de grado · "
-            "Fundación Universitaria Compensar"
-        ),
+        children=[
+            html.Span(
+                (
+                    "Quirón · Proyecto de grado · "
+                    "Fundación Universitaria Compensar"
+                )
+            ),
+            html.Span(
+                (
+                    " · Fecha de corte: "
+                    f"{fecha_corte}"
+                ),
+                className=(
+                    "pie-fecha-corte"
+                ),
+            ),
+        ],
     )
 
 
@@ -677,6 +1209,7 @@ def build_layout(
     sedes_geocodificadas,
     sedes_sin_coordenadas,
     opciones_filtros,
+    metadata,
 ):
     """Construye la interfaz completa del dashboard."""
 
@@ -686,6 +1219,9 @@ def build_layout(
             _encabezado(),
             html.Main(
                 children=[
+                    _panel_trazabilidad(
+                        metadata
+                    ),
                     _panel_filtros(
                         opciones_filtros
                     ),
@@ -701,8 +1237,11 @@ def build_layout(
                         por_servicio,
                         por_naturaleza,
                     ),
+                    _panel_exportacion(),
                 ],
             ),
-            _pie_de_pagina(),
+            _pie_de_pagina(
+                metadata
+            ),
         ],
     )
