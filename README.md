@@ -1,2 +1,11 @@
-# Dashboard-Para-El-An-lisis-De-La-Oferta-De-Servicios-Quir-rgicos-De-Las-Ips-De-Bogot-
-Proyecto fin de grado - Dashboard Para El Análisis De La Oferta De Servicios Quirúrgicos De Las Ips De Bogotá
+# Quirón
+
+Radar de oferta quirúrgica de las IPS de Bogotá D.C. — proyecto de grado,
+Fundación Universitaria Compensar.
+
+## Uso local
+
+pip install -r requirements.txt
+python run.py
+
+Abre http://localhost:8050
