@@ -1,39 +1,62 @@
 """Callbacks interactivos del dashboard Quirón.
 
-Este módulo conecta los controles de filtrado con los indicadores, el
-mapa y las tablas descriptivas.
+Este módulo conecta los controles de filtrado con:
 
-Responsabilidades:
-  - Aplicar los filtros seleccionados por el usuario.
-  - Recalcular los indicadores de la oferta filtrada.
-  - Reconstruir el mapa con las sedes resultantes.
-  - Actualizar la cobertura geográfica.
-  - Actualizar las tablas por servicio y naturaleza jurídica.
-  - Restablecer los controles mediante el botón "Limpiar filtros".
+  - Indicadores.
+  - Mapa.
+  - Cobertura geográfica.
+  - Tablas descriptivas.
+  - Descarga de detalle filtrado.
+  - Descarga de resumen por servicio.
+  - Descarga de resumen por naturaleza.
+  - Descarga de metadata y trazabilidad.
 
-Este módulo no lee archivos directamente. La tabla completa se carga una
-sola vez en ``server.py`` y se entrega a ``registrar_callbacks``.
+La tabla completa se carga una sola vez desde ``server.py``. Cada
+callback trabaja sobre copias filtradas y no modifica los datos
+originales.
 """
 
-from dash import Input, Output
+from dash import (
+    Input,
+    Output,
+    State,
+    dcc,
+)
 
 from quiron.data.metrics import (
     conteo_por_naturaleza,
     conteo_por_servicio,
     resumen_general,
 )
+from quiron.exportacion import (
+    convertir_a_csv,
+    generar_nombre_archivo,
+    preparar_detalle_exportacion,
+    preparar_resumen_por_naturaleza,
+    preparar_resumen_por_servicio,
+)
 from quiron.filtros import (
     aplicar_filtros,
     contar_sedes_unicas,
     filtros_activos,
+)
+from quiron.metadata import (
+    metadata_para_exportacion,
 )
 from quiron.visualizaciones.mapa import (
     crear_mapa_oferta_quirurgica,
 )
 
 
-def _formatear_numero(valor):
-    """Formatea un número entero utilizando punto como separador."""
+TIPO_CONTENIDO_CSV = (
+    "text/csv; charset=utf-8"
+)
+
+
+def _formatear_numero(
+    valor,
+):
+    """Formatea un entero utilizando punto como separador de miles."""
 
     return (
         "{:,}"
@@ -42,11 +65,13 @@ def _formatear_numero(valor):
     )
 
 
-def _calcular_cobertura_geografica(tabla):
-    """Calcula la cobertura cartográfica de una tabla filtrada.
+def _calcular_cobertura_geografica(
+    tabla,
+):
+    """Calcula cobertura cartográfica sobre sedes únicas.
 
-    Los conteos se realizan con identificadores de sede únicos. Esto
-    evita contar dos veces una sede que registre varios servicios.
+    Los conteos utilizan ``sede_id`` para evitar que una sede con varios
+    servicios se contabilice varias veces.
     """
 
     total_sedes = contar_sedes_unicas(
@@ -71,7 +96,7 @@ def _calcular_cobertura_geografica(tabla):
         sedes_geocodificadas
         / total_sedes
         * 100
-    ) if total_sedes else 0
+    ) if total_sedes else 0.0
 
     return {
         "total_sedes": int(
@@ -97,7 +122,7 @@ def _construir_estado_filtros(
     tipos_prestador,
     texto_sede,
 ):
-    """Genera el mensaje descriptivo mostrado debajo de los filtros."""
+    """Genera el mensaje mostrado debajo del panel de filtros."""
 
     sedes_resultantes = contar_sedes_unicas(
         tabla_filtrada
@@ -133,24 +158,70 @@ def _construir_estado_filtros(
     )
 
 
-def _datos_tabla(tabla):
-    """Convierte una tabla de pandas a registros para DataTable."""
+def _datos_tabla(
+    tabla,
+):
+    """Convierte un DataFrame a registros para Dash DataTable."""
 
     return tabla.to_dict(
         "records"
     )
 
 
+def _aplicar_filtros_actuales(
+    tabla_original,
+    servicios,
+    naturalezas,
+    tipos_prestador,
+    texto_sede,
+):
+    """Aplica los valores actuales de los controles.
+
+    La función concentra esta operación para que las cuatro descargas
+    utilicen exactamente las mismas reglas del dashboard.
+    """
+
+    return aplicar_filtros(
+        tabla_original,
+        servicios=servicios,
+        naturalezas=naturalezas,
+        tipos_prestador=tipos_prestador,
+        texto_sede=texto_sede,
+    )
+
+
+def _respuesta_descarga(
+    tabla,
+    tipo,
+):
+    """Construye la respuesta esperada por dcc.Download."""
+
+    contenido = convertir_a_csv(
+        tabla
+    )
+
+    nombre_archivo = generar_nombre_archivo(
+        tipo
+    )
+
+    return {
+        "content": contenido,
+        "filename": nombre_archivo,
+        "type": TIPO_CONTENIDO_CSV,
+        "base64": False,
+    }
+
+
 def registrar_callbacks(
     app,
     tabla_original,
 ):
-    """Registra los callbacks interactivos de Quirón.
+    """Registra todos los callbacks interactivos de Quirón.
 
     Parámetros
     ----------
     app : dash.Dash
-        Aplicación Dash donde se registrarán los callbacks.
+        Aplicación donde se registrarán los callbacks.
 
     tabla_original : pandas.DataFrame
         Resultado completo de
@@ -248,16 +319,20 @@ def registrar_callbacks(
         tipos_prestador,
         texto_sede,
     ):
-        """Actualiza los resultados cuando cambia un filtro."""
+        """Actualiza el dashboard cuando cambia algún filtro."""
 
-        tabla_filtrada = aplicar_filtros(
-            tabla_original,
-            servicios=servicios,
-            naturalezas=naturalezas,
-            tipos_prestador=(
-                tipos_prestador
-            ),
-            texto_sede=texto_sede,
+        tabla_filtrada = (
+            _aplicar_filtros_actuales(
+                tabla_original=(
+                    tabla_original
+                ),
+                servicios=servicios,
+                naturalezas=naturalezas,
+                tipos_prestador=(
+                    tipos_prestador
+                ),
+                texto_sede=texto_sede,
+            )
         )
 
         resumen_filtrado = resumen_general(
@@ -378,19 +453,253 @@ def registrar_callbacks(
     def limpiar_filtros(
         numero_clics,
     ):
-        """Restablece todos los controles a su estado inicial."""
-
-        if not numero_clics:
-            return (
-                [],
-                [],
-                [],
-                "",
-            )
+        """Restablece todos los controles."""
 
         return (
             [],
             [],
             [],
             "",
+        )
+
+    @app.callback(
+        Output(
+            "descarga-detalle",
+            "data",
+        ),
+        Input(
+            "boton-descargar-detalle",
+            "n_clicks",
+        ),
+        State(
+            "filtro-servicio",
+            "value",
+        ),
+        State(
+            "filtro-naturaleza",
+            "value",
+        ),
+        State(
+            "filtro-tipo-prestador",
+            "value",
+        ),
+        State(
+            "filtro-texto-sede",
+            "value",
+        ),
+        prevent_initial_call=True,
+    )
+    def descargar_detalle(
+        numero_clics,
+        servicios,
+        naturalezas,
+        tipos_prestador,
+        texto_sede,
+    ):
+        """Descarga el detalle correspondiente a los filtros activos."""
+
+        tabla_filtrada = (
+            _aplicar_filtros_actuales(
+                tabla_original=(
+                    tabla_original
+                ),
+                servicios=servicios,
+                naturalezas=naturalezas,
+                tipos_prestador=(
+                    tipos_prestador
+                ),
+                texto_sede=texto_sede,
+            )
+        )
+
+        detalle = (
+            preparar_detalle_exportacion(
+                tabla_filtrada
+            )
+        )
+
+        return _respuesta_descarga(
+            tabla=detalle,
+            tipo="detalle",
+        )
+
+    @app.callback(
+        Output(
+            "descarga-servicio",
+            "data",
+        ),
+        Input(
+            "boton-descargar-servicio",
+            "n_clicks",
+        ),
+        State(
+            "filtro-servicio",
+            "value",
+        ),
+        State(
+            "filtro-naturaleza",
+            "value",
+        ),
+        State(
+            "filtro-tipo-prestador",
+            "value",
+        ),
+        State(
+            "filtro-texto-sede",
+            "value",
+        ),
+        prevent_initial_call=True,
+    )
+    def descargar_resumen_servicio(
+        numero_clics,
+        servicios,
+        naturalezas,
+        tipos_prestador,
+        texto_sede,
+    ):
+        """Descarga el resumen por servicio de los datos filtrados."""
+
+        tabla_filtrada = (
+            _aplicar_filtros_actuales(
+                tabla_original=(
+                    tabla_original
+                ),
+                servicios=servicios,
+                naturalezas=naturalezas,
+                tipos_prestador=(
+                    tipos_prestador
+                ),
+                texto_sede=texto_sede,
+            )
+        )
+
+        resumen = preparar_resumen_por_servicio(
+            tabla_filtrada
+        )
+
+        return _respuesta_descarga(
+            tabla=resumen,
+            tipo="servicio",
+        )
+
+    @app.callback(
+        Output(
+            "descarga-naturaleza",
+            "data",
+        ),
+        Input(
+            "boton-descargar-naturaleza",
+            "n_clicks",
+        ),
+        State(
+            "filtro-servicio",
+            "value",
+        ),
+        State(
+            "filtro-naturaleza",
+            "value",
+        ),
+        State(
+            "filtro-tipo-prestador",
+            "value",
+        ),
+        State(
+            "filtro-texto-sede",
+            "value",
+        ),
+        prevent_initial_call=True,
+    )
+    def descargar_resumen_naturaleza(
+        numero_clics,
+        servicios,
+        naturalezas,
+        tipos_prestador,
+        texto_sede,
+    ):
+        """Descarga el resumen por naturaleza de los datos filtrados."""
+
+        tabla_filtrada = (
+            _aplicar_filtros_actuales(
+                tabla_original=(
+                    tabla_original
+                ),
+                servicios=servicios,
+                naturalezas=naturalezas,
+                tipos_prestador=(
+                    tipos_prestador
+                ),
+                texto_sede=texto_sede,
+            )
+        )
+
+        resumen = (
+            preparar_resumen_por_naturaleza(
+                tabla_filtrada
+            )
+        )
+
+        return _respuesta_descarga(
+            tabla=resumen,
+            tipo="naturaleza",
+        )
+
+    @app.callback(
+        Output(
+            "descarga-metadata",
+            "data",
+        ),
+        Input(
+            "boton-descargar-metadata",
+            "n_clicks",
+        ),
+        State(
+            "filtro-servicio",
+            "value",
+        ),
+        State(
+            "filtro-naturaleza",
+            "value",
+        ),
+        State(
+            "filtro-tipo-prestador",
+            "value",
+        ),
+        State(
+            "filtro-texto-sede",
+            "value",
+        ),
+        prevent_initial_call=True,
+    )
+    def descargar_metadata(
+        numero_clics,
+        servicios,
+        naturalezas,
+        tipos_prestador,
+        texto_sede,
+    ):
+        """Descarga la metadata y cobertura del resultado actual."""
+
+        tabla_filtrada = (
+            _aplicar_filtros_actuales(
+                tabla_original=(
+                    tabla_original
+                ),
+                servicios=servicios,
+                naturalezas=naturalezas,
+                tipos_prestador=(
+                    tipos_prestador
+                ),
+                texto_sede=texto_sede,
+            )
+        )
+
+        metadata_exportable = (
+            metadata_para_exportacion(
+                tabla_filtrada
+            )
+        )
+
+        return _respuesta_descarga(
+            tabla=metadata_exportable,
+            tipo="metadata",
         )

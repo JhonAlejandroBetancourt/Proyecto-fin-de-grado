@@ -678,6 +678,411 @@ td {
   line-height: 1.4;
 }
 
+/* =========================================================
+   TRAZABILIDAD DE LOS DATOS
+   ========================================================= */
+
+.panel-trazabilidad {
+  position: relative;
+  z-index: 1;
+  margin-top: 24px;
+  padding: 24px;
+  overflow: visible;
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-grande);
+  box-shadow: var(--sombra);
+}
+
+.encabezado-trazabilidad {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.encabezado-trazabilidad h2 {
+  margin: 0 0 5px;
+  color: var(--morado-profundo);
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.etiqueta-trazabilidad {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  max-width: 280px;
+  padding: 7px 12px;
+  color: var(--advertencia);
+  text-align: center;
+  background: var(--advertencia-fondo);
+  border: 1px solid #edd69b;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.rejilla-trazabilidad {
+  display: grid;
+  grid-template-columns:
+    repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dato-trazabilidad {
+  display: flex;
+  min-width: 0;
+  min-height: 84px;
+  padding: 13px 14px;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--lienzo);
+  border: 1px solid var(--borde-suave);
+  border-radius: var(--radio-pequeno);
+}
+
+.dato-trazabilidad-etiqueta {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--texto-tenue);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+}
+
+.dato-trazabilidad-valor {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--texto);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.enlace-fuente {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  color: var(--morado);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition:
+    color var(--transicion),
+    background-color var(--transicion);
+}
+
+.enlace-fuente:hover {
+  color: var(--morado-profundo);
+}
+
+.enlace-fuente:focus-visible {
+  outline: 3px solid rgba(110, 72, 177, 0.28);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.advertencias-trazabilidad {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.advertencia-metodologica {
+  display: flex;
+  min-width: 0;
+  padding: 14px 16px;
+  align-items: flex-start;
+  gap: 11px;
+  color: var(--texto);
+  background: var(--advertencia-fondo);
+  border: 1px solid #edd69b;
+  border-left: 4px solid var(--advertencia);
+  border-radius:
+    0
+    var(--radio-pequeno)
+    var(--radio-pequeno)
+    0;
+}
+
+.advertencia-metodologica:nth-child(2) {
+  color: var(--morado-profundo);
+  background: var(--morado-muy-claro);
+  border-color: #d9ccec;
+  border-left-color: var(--morado);
+}
+
+.advertencia-icono {
+  flex: 0 0 auto;
+  color: var(--advertencia);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.advertencia-metodologica:nth-child(2)
+.advertencia-icono {
+  color: var(--morado);
+}
+
+.advertencia-metodologica p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+
+/* =========================================================
+   EXPORTACIÓN DE RESULTADOS
+   ========================================================= */
+
+.panel-exportacion {
+  position: relative;
+  z-index: 1;
+  margin-top: 24px;
+  padding: 24px;
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-grande);
+  box-shadow: var(--sombra);
+}
+
+.encabezado-exportacion {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.encabezado-exportacion h2 {
+  margin: 0 0 5px;
+  color: var(--morado-profundo);
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.etiqueta-exportacion {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 6px 11px;
+  color: var(--exito);
+  background: var(--exito-fondo);
+  border: 1px solid #bedfcd;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.rejilla-exportacion {
+  display: grid;
+  grid-template-columns:
+    repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.opcion-descarga {
+  display: flex;
+  min-width: 0;
+  min-height: 150px;
+  padding: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  background:
+    linear-gradient(
+      180deg,
+      #ffffff 0%,
+      #faf8fd 100%
+    );
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  transition:
+    transform var(--transicion),
+    border-color var(--transicion),
+    box-shadow var(--transicion);
+}
+
+.opcion-descarga:hover {
+  border-color: var(--morado-claro);
+  box-shadow:
+    0 8px 20px rgba(51, 9, 104, 0.11);
+  transform: translateY(-2px);
+}
+
+.boton-descarga {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  color: var(--texto-claro);
+  background:
+    linear-gradient(
+      120deg,
+      var(--morado-profundo),
+      var(--morado)
+    );
+  border: 1px solid var(--morado-profundo);
+  border-radius: var(--radio-pequeno);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+  transition:
+    background-color var(--transicion),
+    border-color var(--transicion),
+    box-shadow var(--transicion),
+    transform var(--transicion);
+}
+
+.boton-descarga:hover {
+  background:
+    linear-gradient(
+      120deg,
+      #451184,
+      #8061bb
+    );
+  border-color: #451184;
+  box-shadow:
+    0 6px 15px rgba(51, 9, 104, 0.2);
+}
+
+.boton-descarga:active {
+  transform: translateY(1px);
+}
+
+.boton-descarga:focus-visible {
+  outline: 3px solid rgba(110, 72, 177, 0.34);
+  outline-offset: 3px;
+}
+
+.descripcion-descarga {
+  margin: 0;
+  color: var(--texto-tenue);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+
+/* =========================================================
+   PIE DE PÁGINA CON FECHA DE CORTE
+   ========================================================= */
+
+.pie-fecha-corte {
+  color: var(--morado);
+  font-weight: 700;
+}
+
+
+/* =========================================================
+   ANIMACIÓN DE BLOQUES NUEVOS
+   ========================================================= */
+
+.panel-trazabilidad,
+.panel-exportacion {
+  animation:
+    entrada-suave
+    240ms
+    ease-out
+    both;
+}
+
+
+/* =========================================================
+   ADAPTACIÓN DE TRAZABILIDAD Y EXPORTACIÓN
+   ========================================================= */
+
+@media (max-width: 1080px) {
+  .rejilla-trazabilidad {
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr));
+  }
+
+  .rejilla-exportacion {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+}
+
+
+@media (max-width: 760px) {
+  .panel-trazabilidad,
+  .panel-exportacion {
+    padding: 18px;
+    border-radius: var(--radio);
+  }
+
+  .encabezado-trazabilidad,
+  .encabezado-exportacion {
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .etiqueta-trazabilidad {
+    width: 100%;
+    max-width: none;
+    justify-content: center;
+  }
+
+  .rejilla-trazabilidad {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .advertencias-trazabilidad {
+    grid-template-columns: 1fr;
+  }
+
+  .etiqueta-exportacion {
+    width: fit-content;
+  }
+
+  .rejilla-exportacion {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+}
+
+
+@media (max-width: 480px) {
+  .panel-trazabilidad,
+  .panel-exportacion {
+    padding: 15px;
+  }
+
+  .rejilla-trazabilidad,
+  .rejilla-exportacion {
+    grid-template-columns: 1fr;
+  }
+
+  .dato-trazabilidad {
+    min-height: 72px;
+  }
+
+  .opcion-descarga {
+    min-height: 130px;
+  }
+
+  .advertencia-metodologica {
+    padding: 12px 13px;
+  }
+
+  .pie-fecha-corte {
+    display: block;
+    margin-top: 4px;
+  }
+}
 
 /* =========================================================
    PIE DE PÁGINA
