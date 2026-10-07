@@ -13,9 +13,12 @@ coordenadas permanecen disponibles en el conjunto analítico, pero no se
 ubican artificialmente en el mapa.
 """
 
+from textwrap import wrap
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+
 
 COLOR_MORADO_UCOMPENSAR = "#6E48B1"
 COLOR_MORADO_PROFUNDO = "#330968"
@@ -29,6 +32,9 @@ CENTRO_BOGOTA = {
 
 ZOOM_INICIAL = 10
 ALTURA_MAPA = 620
+
+ANCHO_LINEA_TOOLTIP = 42
+MAXIMO_SERVICIOS_TOOLTIP = 8
 
 COLUMNAS_REQUERIDAS = {
     "sede_id",
@@ -45,7 +51,9 @@ COLUMNAS_REQUERIDAS = {
 }
 
 
-def _validar_columnas(tabla):
+def _validar_columnas(
+    tabla,
+):
     """Verifica que la tabla contenga los campos usados por el mapa."""
 
     faltantes = COLUMNAS_REQUERIDAS.difference(
@@ -54,7 +62,9 @@ def _validar_columnas(tabla):
 
     if faltantes:
         columnas = ", ".join(
-            sorted(faltantes)
+            sorted(
+                faltantes
+            )
         )
 
         raise ValueError(
@@ -63,38 +73,174 @@ def _validar_columnas(tabla):
         )
 
 
-def _unir_valores_unicos(serie):
+def _unir_valores_unicos(
+    serie,
+):
     """Combina valores únicos respetando su orden de aparición."""
 
     valores = []
 
     for valor in serie.dropna():
-        texto = str(valor).strip()
+        texto = str(
+            valor
+        ).strip()
 
         if texto and texto not in valores:
-            valores.append(texto)
+            valores.append(
+                texto
+            )
 
-    return " · ".join(valores)
+    return " · ".join(
+        valores
+    )
 
 
-def _preparar_sedes_para_mapa(tabla):
-    """Consolida la oferta a una sola fila por sede georreferenciada.
+def _valores_unicos(
+    serie,
+):
+    """Devuelve valores únicos limpios conservando su orden."""
+
+    valores = []
+
+    for valor in serie.dropna():
+        texto = str(
+            valor
+        ).strip()
+
+        if texto and texto not in valores:
+            valores.append(
+                texto
+            )
+
+    return valores
+
+
+def _envolver_texto_tooltip(
+    valor,
+    ancho=ANCHO_LINEA_TOOLTIP,
+):
+    """Divide un valor largo en líneas aptas para el tooltip.
+
+    Plotly interpreta ``<br>`` como salto de línea dentro de
+    ``hovertemplate``. La función no modifica el valor analítico
+    original; únicamente crea una representación para visualización.
+    """
+
+    if pd.isna(
+        valor
+    ):
+        return "No disponible"
+
+    texto = str(
+        valor
+    ).strip()
+
+    if not texto:
+        return "No disponible"
+
+    lineas = wrap(
+        texto,
+        width=ancho,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+    return "<br>".join(
+        lineas
+    )
+
+
+def _formatear_lista_tooltip(
+    valor,
+):
+    """Formatea una cadena consolidada como lista multilínea."""
+
+    if pd.isna(
+        valor
+    ):
+        return "No disponible"
+
+    texto = str(
+        valor
+    ).strip()
+
+    if not texto:
+        return "No disponible"
+
+    elementos = [
+        elemento.strip()
+        for elemento in texto.split(" · ")
+        if elemento.strip()
+    ]
+
+    if not elementos:
+        return "No disponible"
+
+    elementos_visibles = elementos[
+        :MAXIMO_SERVICIOS_TOOLTIP
+    ]
+
+    lineas = []
+
+    for elemento in elementos_visibles:
+        elemento_envuelto = (
+            _envolver_texto_tooltip(
+                elemento
+            )
+        )
+
+        lineas.append(
+            f"• {elemento_envuelto}"
+        )
+
+    elementos_ocultos = (
+        len(elementos)
+        - len(elementos_visibles)
+    )
+
+    if elementos_ocultos > 0:
+        lineas.append(
+            (
+                f"• … y {elementos_ocultos} "
+                "servicios adicionales"
+            )
+        )
+
+    return "<br>".join(
+        lineas
+    )
+
+
+def _preparar_sedes_para_mapa(
+    tabla,
+):
+    """Consolida la oferta a una fila por sede georreferenciada.
 
     Una sede puede registrar varios servicios quirúrgicos. En lugar de
     dibujar varios puntos exactamente en las mismas coordenadas, esta
     función agrupa los códigos y nombres de servicio en una sola fila.
+
+    Se crean columnas adicionales terminadas en ``_tooltip``. Estas
+    columnas se utilizan únicamente para presentar información dentro
+    del recuadro del mapa y no sustituyen los valores originales.
     """
 
-    _validar_columnas(tabla)
+    _validar_columnas(
+        tabla
+    )
 
     coordenadas_validas = (
-        tabla["coordenada_valida"]
+        tabla[
+            "coordenada_valida"
+        ]
         .fillna(False)
         .astype(bool)
     )
 
     servicios_quirurgicos = (
-        tabla["es_quirurgico"]
+        tabla[
+            "es_quirurgico"
+        ]
         .fillna(False)
         .astype(bool)
     )
@@ -102,8 +248,12 @@ def _preparar_sedes_para_mapa(tabla):
     registros_validos = tabla.loc[
         coordenadas_validas
         & servicios_quirurgicos
-        & tabla["latitud"].notna()
-        & tabla["longitud"].notna()
+        & tabla[
+            "latitud"
+        ].notna()
+        & tabla[
+            "longitud"
+        ].notna()
     ].copy()
 
     if registros_validos.empty:
@@ -118,6 +268,12 @@ def _preparar_sedes_para_mapa(tabla):
                 "codigos_servicio",
                 "latitud",
                 "longitud",
+                "sede_tooltip",
+                "direccion_tooltip",
+                "naturaleza_tooltip",
+                "tipo_prestador_tooltip",
+                "codigos_tooltip",
+                "servicios_tooltip",
             ]
         )
 
@@ -168,6 +324,54 @@ def _preparar_sedes_para_mapa(tabla):
         .reset_index(
             drop=True
         )
+    )
+
+    sedes[
+        "sede_tooltip"
+    ] = sedes[
+        "sede"
+    ].apply(
+        _envolver_texto_tooltip
+    )
+
+    sedes[
+        "direccion_tooltip"
+    ] = sedes[
+        "direccion"
+    ].apply(
+        _envolver_texto_tooltip
+    )
+
+    sedes[
+        "naturaleza_tooltip"
+    ] = sedes[
+        "naturaleza"
+    ].apply(
+        _envolver_texto_tooltip
+    )
+
+    sedes[
+        "tipo_prestador_tooltip"
+    ] = sedes[
+        "tipo_prestador"
+    ].apply(
+        _envolver_texto_tooltip
+    )
+
+    sedes[
+        "codigos_tooltip"
+    ] = sedes[
+        "codigos_servicio"
+    ].apply(
+        _formatear_lista_tooltip
+    )
+
+    sedes[
+        "servicios_tooltip"
+    ] = sedes[
+        "servicios"
+    ].apply(
+        _formatear_lista_tooltip
     )
 
     return sedes
@@ -221,7 +425,9 @@ def _crear_mapa_sin_datos():
     return figura
 
 
-def crear_mapa_oferta_quirurgica(tabla):
+def crear_mapa_oferta_quirurgica(
+    tabla,
+):
     """Crea el mapa interactivo de sedes con oferta quirúrgica.
 
     Parámetros
@@ -246,13 +452,13 @@ def crear_mapa_oferta_quirurgica(tabla):
         sedes,
         lat="latitud",
         lon="longitud",
-        hover_name="sede",
         custom_data=[
-            "direccion",
-            "naturaleza",
-            "tipo_prestador",
-            "codigos_servicio",
-            "servicios",
+            "sede_tooltip",
+            "direccion_tooltip",
+            "naturaleza_tooltip",
+            "tipo_prestador_tooltip",
+            "codigos_tooltip",
+            "servicios_tooltip",
         ],
         center=CENTRO_BOGOTA,
         zoom=ZOOM_INICIAL,
@@ -264,17 +470,23 @@ def crear_mapa_oferta_quirurgica(tabla):
     )
 
     figura.update_traces(
+        mode="markers",
         marker={
             "size": 11,
             "opacity": 0.82,
         },
         hovertemplate=(
-            "<b>%{hovertext}</b><br>"
-            "Dirección: %{customdata[0]}<br>"
-            "Naturaleza jurídica: %{customdata[1]}<br>"
-            "Tipo de prestador: %{customdata[2]}<br>"
-            "Códigos de servicio: %{customdata[3]}<br>"
-            "Servicios: %{customdata[4]}"
+            "<b>%{customdata[0]}</b><br><br>"
+            "<b>Dirección:</b><br>"
+            "%{customdata[1]}<br><br>"
+            "<b>Naturaleza jurídica:</b><br>"
+            "%{customdata[2]}<br><br>"
+            "<b>Tipo de prestador:</b><br>"
+            "%{customdata[3]}<br><br>"
+            "<b>Códigos de servicio:</b><br>"
+            "%{customdata[4]}<br><br>"
+            "<b>Servicios:</b><br>"
+            "%{customdata[5]}"
             "<extra></extra>"
         ),
     )
@@ -304,11 +516,12 @@ def crear_mapa_oferta_quirurgica(tabla):
             "bordercolor": (
                 COLOR_MORADO_UCOMPENSAR
             ),
+            "align": "left",
             "font": {
                 "family": (
                     "Segoe UI, Arial, sans-serif"
                 ),
-                "size": 13,
+                "size": 12,
                 "color": (
                     COLOR_MORADO_PROFUNDO
                 ),
