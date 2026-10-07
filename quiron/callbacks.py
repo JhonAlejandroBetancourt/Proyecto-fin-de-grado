@@ -16,13 +16,24 @@ callback trabaja sobre copias filtradas y no modifica los datos
 originales.
 """
 
+import json
+import uuid
+
 from dash import (
     Input,
     Output,
     State,
     dcc,
+    no_update,
 )
 
+from quiron.asistente import (
+    ErrorAsistente,
+    buscar_sede_mencionada,
+    buscar_sede_unica,
+    interpretar_solicitud,
+    solicita_descarga_detalle,
+)
 from quiron.data.metrics import (
     conteo_por_naturaleza,
     conteo_por_servicio,
@@ -39,6 +50,7 @@ from quiron.filtros import (
     aplicar_filtros,
     contar_sedes_unicas,
     filtros_activos,
+    obtener_opciones_filtros,
 )
 from quiron.metadata import (
     metadata_para_exportacion,
@@ -242,6 +254,10 @@ def registrar_callbacks(
         resumen_fuente[
             "sedes_con_oferta_quirurgica"
         ]
+    )
+
+    opciones_asistente = obtener_opciones_filtros(
+        tabla_original
     )
 
     @app.callback(
@@ -702,4 +718,290 @@ def registrar_callbacks(
         return _respuesta_descarga(
             tabla=metadata_exportable,
             tipo="metadata",
+        )
+
+    @app.callback(
+        Output(
+            "filtro-servicio",
+            "value",
+            allow_duplicate=True,
+        ),
+        Output(
+            "filtro-naturaleza",
+            "value",
+            allow_duplicate=True,
+        ),
+        Output(
+            "filtro-tipo-prestador",
+            "value",
+            allow_duplicate=True,
+        ),
+        Output(
+            "filtro-texto-sede",
+            "value",
+            allow_duplicate=True,
+        ),
+        Output(
+            "asistente-estado",
+            "children",
+        ),
+        Output(
+            "asistente-respuesta",
+            "children",
+        ),
+        Output(
+            "mapa-enfoque-pendiente",
+            "children",
+        ),
+        Output(
+            "descarga-detalle",
+            "data",
+            allow_duplicate=True,
+        ),
+        Input(
+            "asistente-enviar",
+            "n_clicks",
+        ),
+        State(
+            "asistente-solicitud",
+            "value",
+        ),
+        State(
+            "filtro-servicio",
+            "value",
+        ),
+        State(
+            "filtro-naturaleza",
+            "value",
+        ),
+        State(
+            "filtro-tipo-prestador",
+            "value",
+        ),
+        State(
+            "filtro-texto-sede",
+            "value",
+        ),
+        prevent_initial_call=True,
+    )
+    def ejecutar_asistente(
+        numero_clics,
+        solicitud,
+        servicios_actuales,
+        naturalezas_actuales,
+        tipos_actuales,
+        texto_actual,
+    ):
+        """Interpreta una solicitud y aplica únicamente acciones permitidas."""
+
+        try:
+            sede_mencionada = buscar_sede_mencionada(
+                tabla_original,
+                solicitud,
+            )
+            descarga_detalle = solicita_descarga_detalle(
+                solicitud
+            )
+            if sede_mencionada is not None or descarga_detalle:
+                comando = {
+                    "understood": True,
+                    "clear_filters": False,
+                    "change_services": False,
+                    "services": [],
+                    "change_nature": False,
+                    "nature": [],
+                    "change_providers": False,
+                    "providers": [],
+                    "change_name_search": False,
+                    "name_search": "",
+                    "focus_sede": (
+                        str(sede_mencionada["sede"])
+                        if sede_mencionada is not None
+                        else ""
+                    ),
+                    "download_detail": descarga_detalle,
+                }
+            else:
+                comando = interpretar_solicitud(
+                    solicitud,
+                    opciones_asistente,
+                )
+        except ErrorAsistente as error:
+            mensaje = str(error)
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                mensaje,
+                mensaje,
+                "",
+                no_update,
+            )
+        if not comando["understood"]:
+            mensaje = (
+                "No entendí la solicitud. Prueba, por ejemplo: "
+                "«filtra las sedes públicas» o "
+                "«ubica Clínica del Norte en el mapa»."
+            )
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                mensaje,
+                mensaje,
+                "",
+                no_update,
+            )
+
+        if comando["clear_filters"]:
+            nuevos_servicios = []
+            nuevas_naturalezas = []
+            nuevos_tipos = []
+            nuevo_texto = ""
+        else:
+            nuevos_servicios = (
+                comando["services"]
+                if comando["change_services"]
+                else servicios_actuales or []
+            )
+            nuevas_naturalezas = (
+                comando["nature"]
+                if comando["change_nature"]
+                else naturalezas_actuales or []
+            )
+            nuevos_tipos = (
+                comando["providers"]
+                if comando["change_providers"]
+                else tipos_actuales or []
+            )
+            nuevo_texto = (
+                comando["name_search"]
+                if comando["change_name_search"]
+                else texto_actual or ""
+            )
+
+        sede_enfocada = None
+        consulta_sede = comando["focus_sede"]
+        if consulta_sede:
+            sede_enfocada, error_busqueda = buscar_sede_unica(
+                tabla_original,
+                consulta_sede,
+            )
+            if error_busqueda:
+                return (
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    error_busqueda,
+                    error_busqueda,
+                    "",
+                    no_update,
+                )
+
+            coincidencias_filtradas = aplicar_filtros(
+                tabla_original,
+                servicios=nuevos_servicios,
+                naturalezas=nuevas_naturalezas,
+                tipos_prestador=nuevos_tipos,
+                texto_sede=nuevo_texto,
+            )
+            if not coincidencias_filtradas[
+                "sede_id"
+            ].astype(str).eq(
+                str(sede_enfocada["sede_id"])
+            ).any():
+                mensaje = (
+                    f"Encontré «{sede_enfocada['sede']}», pero no aparece "
+                    "con los filtros actuales. Ajusta los filtros o pide "
+                    "limpiarlos y vuelve a intentarlo."
+                )
+                return (
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    mensaje,
+                    mensaje,
+                    "",
+                    no_update,
+                )
+
+            nuevo_texto = str(
+                sede_enfocada["sede"]
+            )
+
+        if comando["download_detail"]:
+            respuesta = (
+                "De acuerdo, descargué el detalle filtrado."
+            )
+        elif comando["clear_filters"]:
+            respuesta = "De acuerdo, limpié todos los filtros."
+        elif sede_enfocada is not None:
+            respuesta = (
+                f"De acuerdo, encontré {sede_enfocada['sede']}. "
+                "La filtré y acerqué el mapa."
+            )
+        elif comando["change_name_search"]:
+            respuesta = (
+                "De acuerdo, actualicé la búsqueda de sedes."
+                if nuevo_texto
+                else "De acuerdo, quité el filtro de búsqueda de sedes."
+            )
+        elif any(
+            (
+                comando["change_services"],
+                comando["change_nature"],
+                comando["change_providers"],
+            )
+        ):
+            respuesta = "De acuerdo, apliqué los filtros solicitados."
+        else:
+            respuesta = (
+                "Entendí la solicitud, pero no detecté un cambio "
+                "que pueda aplicar."
+            )
+
+        enfoque = ""
+        if sede_enfocada is not None:
+            enfoque = json.dumps(
+                {
+                    "id": uuid.uuid4().hex,
+                    "lat": float(
+                        sede_enfocada["latitud"]
+                    ),
+                    "lon": float(
+                        sede_enfocada["longitud"]
+                    ),
+                    "zoom": 15,
+                }
+            )
+
+        descarga = no_update
+        if comando["download_detail"]:
+            tabla_filtrada = _aplicar_filtros_actuales(
+                tabla_original=tabla_original,
+                servicios=nuevos_servicios,
+                naturalezas=nuevas_naturalezas,
+                tipos_prestador=nuevos_tipos,
+                texto_sede=nuevo_texto,
+            )
+            descarga = _respuesta_descarga(
+                tabla=preparar_detalle_exportacion(
+                    tabla_filtrada
+                ),
+                tipo="detalle",
+            )
+
+        return (
+            nuevos_servicios,
+            nuevas_naturalezas,
+            nuevos_tipos,
+            nuevo_texto,
+            "Solicitud aplicada.",
+            respuesta,
+            enfoque,
+            descarga,
         )

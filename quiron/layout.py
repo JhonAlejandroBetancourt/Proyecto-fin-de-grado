@@ -583,6 +583,104 @@ def _panel_filtros(
     )
 
 
+def _panel_asistente():
+    """Construye el asistente de voz y texto del dashboard."""
+
+    return html.Section(
+        className="panel-asistente",
+        **{
+            "aria-labelledby": "titulo-asistente",
+        },
+        children=[
+            html.Div(
+                className="encabezado-asistente",
+                children=[
+                    html.Div(
+                        children=[
+                            html.H2(
+                                "Asistente de voz",
+                                id="titulo-asistente",
+                            ),
+                            html.P(
+                                (
+                                    "Pide filtros, busca una sede o indica "
+                                    "cuál quieres ver ampliada en el mapa."
+                                ),
+                                className="descripcion-seccion",
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="controles-asistente",
+                children=[
+                    html.Label(
+                        "Escribe la solicitud para el asistente",
+                        htmlFor="asistente-solicitud",
+                        className="asistente-solo-lector",
+                    ),
+                    dcc.Input(
+                        id="asistente-solicitud",
+                        type="text",
+                        value="",
+                        maxLength=500,
+                        placeholder=(
+                            "Ej. filtra las sedes públicas y amplía "
+                            "Clínica del Norte"
+                        ),
+                        autoComplete="off",
+                        className="entrada-filtro entrada-asistente",
+                    ),
+                    html.Button(
+                        "Hablar",
+                        id="asistente-microfono",
+                        n_clicks=0,
+                        type="button",
+                        className="boton-asistente boton-microfono",
+                        **{
+                            "aria-label": "Dictar solicitud por voz",
+                            "title": "Dictar solicitud por voz",
+                        },
+                    ),
+                    html.Button(
+                        "Enviar",
+                        id="asistente-enviar",
+                        n_clicks=0,
+                        type="button",
+                        className="boton-asistente",
+                    ),
+                ],
+            ),
+            html.Div(
+                id="asistente-estado",
+                className="estado-asistente",
+                children=(
+                    "Dicta o escribe una solicitud. Para Gemini, "
+                    "configura GEMINI_API_KEY en el archivo .env."
+                ),
+                **{
+                    "aria-live": "polite",
+                },
+            ),
+            html.Div(
+                id="asistente-respuesta",
+                className="respuesta-asistente",
+                **{
+                    "aria-live": "polite",
+                },
+            ),
+            html.Div(
+                id="mapa-enfoque-pendiente",
+                className="mapa-enfoque-pendiente",
+                **{
+                    "aria-hidden": "true",
+                },
+            ),
+        ],
+    )
+
+
 def _tarjeta_kpi(
     icono,
     valor,
@@ -1225,6 +1323,7 @@ def build_layout(
                     _panel_filtros(
                         opciones_filtros
                     ),
+                    _panel_asistente(),
                     _panel_kpis(
                         resumen
                     ),
