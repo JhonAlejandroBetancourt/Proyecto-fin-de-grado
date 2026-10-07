@@ -250,6 +250,108 @@ a:focus-visible {
   transform: translateY(0);
 }
 
+.panel-asistente {
+  margin-top: 16px;
+  padding: 20px 24px;
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-grande);
+  box-shadow: var(--sombra);
+}
+
+.encabezado-asistente {
+  margin-bottom: 12px;
+}
+
+.encabezado-asistente h2 {
+  margin: 0 0 4px;
+  color: var(--morado-profundo);
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.controles-asistente {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.asistente-solo-lector {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.entrada-asistente {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.boton-asistente {
+  min-width: 92px;
+  min-height: 40px;
+  padding: 8px 15px;
+  color: var(--texto-claro);
+  background: var(--morado);
+  border: 1px solid var(--morado);
+  border-radius: var(--radio-pequeno);
+  font-size: 13px;
+  font-weight: 700;
+  transition:
+    background-color var(--transicion),
+    border-color var(--transicion),
+    box-shadow var(--transicion);
+}
+
+.boton-asistente:hover:not(:disabled) {
+  background: var(--morado-profundo);
+  border-color: var(--morado-profundo);
+  box-shadow: 0 4px 12px rgba(51, 9, 104, 0.16);
+}
+
+.boton-asistente:focus-visible {
+  outline: 3px solid rgba(110, 72, 177, 0.34);
+  outline-offset: 2px;
+}
+
+.boton-asistente:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.boton-microfono {
+  color: var(--morado-profundo);
+  background: var(--morado-muy-claro);
+  border-color: var(--morado-claro);
+}
+
+.boton-microfono:hover:not(:disabled) {
+  color: var(--texto-claro);
+}
+
+.estado-asistente,
+.respuesta-asistente {
+  margin: 9px 0 0;
+  color: var(--texto-tenue);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.respuesta-asistente {
+  color: var(--morado-profundo);
+  font-weight: 700;
+}
+
+.mapa-enfoque-pendiente {
+  display: none;
+}
+
+
 .rejilla-filtros {
   display: grid;
   grid-template-columns:
@@ -1180,6 +1282,10 @@ td {
     border-radius: var(--radio);
   }
 
+  .panel-asistente {
+    padding: 18px;
+  }
+
   .encabezado-filtros {
     flex-direction: column;
     gap: 14px;
@@ -1229,6 +1335,18 @@ td {
   .seccion-mapa,
   .tarjeta-tabla {
     padding: 15px;
+  }
+
+  .controles-asistente {
+    flex-wrap: wrap;
+  }
+
+  .entrada-asistente {
+    flex-basis: 100%;
+  }
+
+  .boton-asistente {
+    flex: 1 1 0;
   }
 
   .panel-kpis {
