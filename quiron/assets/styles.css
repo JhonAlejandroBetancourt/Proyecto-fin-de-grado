@@ -41,8 +41,19 @@
    NORMALIZACIÓN GENERAL
    ========================================================= */
 
+/*
+  Normalización de cajas para los elementos HTML del dashboard.
+  Los elementos SVG internos de Plotly se restauran a su valor inicial
+  para no alterar el cálculo del fondo y el texto de los tooltips.
+*/
+
 * {
   box-sizing: border-box;
+}
+
+svg,
+svg * {
+  box-sizing: content-box;
 }
 
 html {
@@ -59,7 +70,6 @@ body {
     "Segoe UI",
     Arial,
     sans-serif;
-  line-height: 1.5;
 }
 
 button,
@@ -84,6 +94,16 @@ a:focus-visible {
   width: min(1180px, 100%);
   margin: 0 auto;
   padding: 32px 24px;
+}
+
+/*
+  La altura de línea se aplica al contenido HTML del dashboard,
+  pero no de forma global al body. Esto evita que la hereden los
+  elementos SVG internos de Plotly.
+*/
+
+.lienzo {
+  line-height: 1.5;
 }
 
 
@@ -593,7 +613,6 @@ a:focus-visible {
 .mapa-principal {
   width: 100%;
   min-height: 620px;
-  overflow: hidden;
   background: #f7f6fa;
   border: 1px solid var(--borde-suave);
   border-radius: var(--radio);
@@ -984,21 +1003,6 @@ td {
   font-weight: 700;
 }
 
-
-/* =========================================================
-   ANIMACIÓN DE BLOQUES NUEVOS
-   ========================================================= */
-
-.panel-trazabilidad,
-.panel-exportacion {
-  animation:
-    entrada-suave
-    240ms
-    ease-out
-    both;
-}
-
-
 /* =========================================================
    ADAPTACIÓN DE TRAZABILIDAD Y EXPORTACIÓN
    ========================================================= */
@@ -1119,7 +1123,6 @@ td {
 
 .panel-filtros,
 .panel-kpis,
-.seccion-mapa,
 .seccion-tablas {
   animation:
     entrada-suave
@@ -1128,6 +1131,12 @@ td {
     both;
 }
 
+/*
+  El mapa no debe estar dentro de un contenedor transformado.
+  Plotly calcula dinámicamente la posición de los tooltips y una
+  transformación en un elemento ancestro puede desalinear el texto
+  respecto del recuadro.
+*/
 
 /* =========================================================
    DISEÑO ADAPTABLE
@@ -1370,4 +1379,25 @@ td {
 .tarjeta-tabla {
   position: relative;
   z-index: 1;
+}
+.panel-filtros,
+.panel-kpis,
+.seccion-tablas,
+.panel-trazabilidad,
+.panel-exportacion {
+  animation:
+    entrada-suave
+    240ms
+    ease-out
+    both;
+}
+
+/*
+  El mapa se excluye de cualquier animación basada en transform.
+  Plotly administra internamente la posición de sus tooltips SVG.
+*/
+
+.seccion-mapa {
+  animation: none !important;
+  transform: none !important;
 }
