@@ -48,3 +48,54 @@ Si se agota la cuota, el asistente mostrará el tiempo de renovación que
 informe Google; puedes revisar los límites y la facturación en Google AI Studio.
 Configura límites y autenticación antes de publicar la aplicación en Internet;
 este asistente no incluye control de acceso para usuarios remotos.
+
+## Pruebas funcionales con Playwright
+
+Las pruebas de navegador recorren la plataforma como una persona usuaria:
+carga del dashboard, filtros, limpieza, asistente de texto/voz y descarga de
+los cuatro CSV. La prueba de filtros compara numéricamente los indicadores
+generales y geográficos antes y después de seleccionar un servicio, comprueba
+su restablecimiento y adjunta capturas separadas de ambos estados.
+
+Desde la raíz del proyecto, instala las dependencias de pruebas:
+
+```powershell
+npm install
+```
+
+Ejecuta los escenarios:
+
+```powershell
+npm run test:e2e
+```
+
+Playwright inicia automáticamente la aplicación en un puerto aislado
+(`http://127.0.0.1:8052`) y un endpoint Gemini simulado local para comprobar
+el viaje petición-respuesta sin enviar solicitudes ni credenciales a Google.
+Cada escenario crea un PDF independiente y capturas PNG en
+`reportes/pruebas_funcionales/`; los círculos rojos numerados señalan los
+controles pulsados durante la prueba. En Windows se requiere Microsoft Edge
+instalado; en otros sistemas, instala Chromium con
+`npx playwright install chromium`. Todos los escenarios esperan que Plotly,
+el estilo, el lienzo y el mapa hayan terminado de cargar. Si el mapa no queda
+listo, la prueba falla con diagnóstico en lugar de generar una captura blanca.
+El mapa base utiliza teselas de CARTO, por lo que depende de ese servicio
+externo.
+
+Las pruebas de voz comprueban que speechSynthesis recibe la respuesta en
+`es-CO` y generan un MP4 con fotogramas de los pasos y narración audible en
+español en `reportes/pruebas_funcionales/`. En Windows se requiere FFmpeg
+accesible en PATH y una voz española de Windows instalada. El MP4 narra el
+mismo texto devuelto por la plataforma.
+
+La prueba opcional con Gemini real consume cuota y necesita una clave válida
+en `.env`. En PowerShell:
+
+```powershell
+$env:E2E_LIVE_GEMINI = "1"
+npm run test:e2e
+Remove-Item Env:E2E_LIVE_GEMINI
+```
+
+Este modo inicia otra instancia aislada en el puerto `8053` y envía únicamente
+la solicitud de prueba «filtra las sedes públicas» al servicio configurado.

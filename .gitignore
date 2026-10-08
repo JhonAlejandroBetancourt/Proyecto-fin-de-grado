@@ -19,3 +19,9 @@ __pycache__/
 
 # Artefactos locales de prueba
 mapa_prueba.html
+
+# Dependencias y artefactos de Playwright
+node_modules/
+test-results/
+playwright-report/
+reportes/pruebas_funcionales/
