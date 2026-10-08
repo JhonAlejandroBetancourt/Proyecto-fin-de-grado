@@ -211,8 +211,26 @@ def _solicitar_comando_gemini(
             "El modelo configurado para Gemini no es válido."
         )
 
+    api_base_url = os.getenv(
+        "GEMINI_API_BASE_URL",
+        (
+            "https://generativelanguage.googleapis.com/"
+            "v1beta/models"
+        ),
+    ).strip().rstrip("/")
+    if not api_base_url.startswith(
+        (
+            "https://",
+            "http://127.0.0.1:",
+            "http://localhost:",
+        )
+    ):
+        raise ErrorAsistente(
+            "La URL base configurada para Gemini no es válida."
+        )
+
     url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{api_base_url}/"
         f"{quote(modelo, safe='._-')}:generateContent"
     )
     cuerpo = {
