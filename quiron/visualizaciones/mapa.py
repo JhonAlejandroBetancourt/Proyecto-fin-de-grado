@@ -400,13 +400,13 @@ def _crear_mapa_sin_datos(tabla):
     ].fillna(False).astype(bool).any():
         mensaje = (
             "Los resultados actuales no tienen "
-            "coordenadas válidas. Si cargaste un CSV "
-            "distinto a la fuente original, Quirón no "
-            "reutiliza las coordenadas del proyecto por "
-            "posición para evitar ubicar sedes "
-            "incorrectamente. Carga de nuevo el CSV "
-            "fuente original; si ya está activo, revisa "
-            "el archivo sedes_geocodificadas.csv."
+            "coordenadas válidas. Quirón asocia "
+            "coordenadas solo cuando el nombre y la "
+            "dirección coinciden de forma única con la "
+            "fuente geocodificada. Verifica esos campos "
+            "o carga el CSV fuente original; las "
+            "coincidencias ambiguas no se muestran para "
+            "evitar ubicaciones incorrectas."
         )
     else:
         mensaje = (

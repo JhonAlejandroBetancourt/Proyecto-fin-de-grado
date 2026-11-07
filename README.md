@@ -27,11 +27,11 @@ los indicadores, filtros, mapa, tablas y exportaciones; el archivo cargado
 permanece solo en el estado de la sesión del navegador y no se guarda en el
 servidor.
 
-Las coordenadas existentes solo se asocian cuando el contenido del CSV es
-idéntico al archivo fuente geocodificado. Para cualquier CSV diferente, el
-dashboard conserva los datos y deja las coordenadas sin resolver; así evita
-asignar ubicaciones incorrectas, ya que el identificador de sede actual se
-deriva del orden de las filas.
+Las coordenadas se asocian mediante una coincidencia única del nombre de la
+sede y su dirección normalizados, no por el orden de las filas ni por la
+huella binaria completa del archivo. Así, volver a guardar o reordenar un CSV
+no elimina coordenadas válidas, y las sedes ambiguas o sin coincidencia se
+mantienen sin ubicación para evitar asignaciones incorrectas.
 
 ## Pruebas unitarias y cobertura
 

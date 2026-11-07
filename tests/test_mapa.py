@@ -30,8 +30,8 @@ def test_mapa_fuente_original_muestra_sedes_geocodificadas():
     assert not figura.layout.annotations
 
 
-def test_mapa_csv_alternativo_explica_por_que_no_hay_coordenadas():
-    """Un CSV distinto no debe señalar como defectuoso el archivo geocodificado."""
+def test_mapa_fuente_con_huella_diferente_conserva_las_coordenadas():
+    """Un cambio de bytes no debe dejar vacío el mapa."""
 
     contenido = (
         ARCHIVO_CIRUGIA_PLASTICA.read_bytes()
@@ -45,8 +45,44 @@ def test_mapa_csv_alternativo_explica_por_que_no_hay_coordenadas():
         resultado.tabla
     )
 
+    puntos = sum(
+        len(traza.lat)
+        for traza in figura.data
+    )
+    sedes_geocodificadas = (
+        ejecutar_etl()
+        .tabla.drop_duplicates(
+            subset=["sede_id"]
+        )["coordenada_valida"]
+        .sum()
+    )
+
+    assert puntos == sedes_geocodificadas
+    assert puntos > 0
+    assert not figura.layout.annotations
+
+
+def test_mapa_sin_coincidencias_explica_el_motivo():
+    """Un CSV con sedes nuevas explica el criterio de asociación segura."""
+
+    contenido = (
+        "SEDE -NOMBRE;DIRECCION;TELEFONO;"
+        "CORREO ELECTRÓNICO;NATURALEZA;"
+        "TIPO DE PRESTADOR;"
+        "213 - CIRUGÍA PLÁSTICA\n"
+        "Clínica Nueva;Dirección nueva;123;"
+        "nueva@example.com;Privada;IPS;X\n"
+    ).encode("utf-8")
+    resultado = ejecutar_etl(
+        origen=contenido,
+        nombre_fuente="sedes-nuevas.csv",
+    )
+    figura = crear_mapa_oferta_quirurgica(
+        resultado.tabla
+    )
+
     mensaje = figura.layout.annotations[0].text
 
-    assert "CSV distinto a la fuente original" in mensaje
-    assert "no reutiliza las coordenadas del proyecto" in mensaje
-    assert "si ya está activo, revisa" in mensaje
+    assert "coinciden de forma única" in mensaje
+    assert "Verifica esos campos" in mensaje
+    assert "coincidencias ambiguas no se muestran" in mensaje

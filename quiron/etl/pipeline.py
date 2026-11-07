@@ -22,7 +22,6 @@ import pandas as pd
 from quiron.data.loader import (
     ARCHIVO_CIRUGIA_PLASTICA,
     CODIGOS_QUIRURGICOS,
-    cargar_cirugia_plastica,
     cargar_oferta_con_coordenadas,
 )
 from quiron.etl.observabilidad import (
@@ -119,7 +118,6 @@ def _normalizar_a_bytes(
 def _registrar_mapeo_campos(
     tabla,
     traza,
-    incluir_geocodificacion,
 ):
     """Documenta el mapeo de campos origen → destino en la traza."""
 
@@ -173,25 +171,16 @@ def _registrar_mapeo_campos(
         filas=filas,
     )
 
-    if incluir_geocodificacion:
-        transformacion_coordenadas = (
-            "Unión segura por sede_id; el "
-            "contenido coincide con el CSV "
-            "geocodificado"
-        )
-    else:
-        transformacion_coordenadas = (
-            "No se reutilizan coordenadas: "
-            "sede_id depende del orden de filas "
-            "y el CSV cargado es diferente"
-        )
-
     traza.mapear(
         campo_origen="sedes_geocodificadas.csv",
         campo_destino=(
             "latitud, longitud, coordenada_valida"
         ),
-        transformacion=transformacion_coordenadas,
+        transformacion=(
+            "Coincidencia única por nombre de sede "
+            "y dirección normalizados; independiente "
+            "del orden de las filas"
+        ),
         filas=filas,
     )
 
@@ -253,38 +242,80 @@ def ejecutar_etl(
         huella_incluida = _calcular_huella(
             ARCHIVO_CIRUGIA_PLASTICA.read_bytes()
         )
-        incluir_geocodificacion = (
+        misma_fuente_binaria = (
             huella == huella_incluida
         )
 
-        if incluir_geocodificacion:
-            tabla = cargar_oferta_con_coordenadas(
-                origen=contenido,
-                nombre_fuente=nombre,
-            )
-        else:
-            tabla = cargar_cirugia_plastica(
-                origen=contenido,
-                nombre_fuente=nombre,
-            )
-            tabla["direccion_normalizada"] = [
-                None
-            ] * len(tabla)
-            tabla["latitud"] = [None] * len(tabla)
-            tabla["longitud"] = [None] * len(tabla)
-            tabla["geocodificado"] = False
-            tabla["coordenada_valida"] = False
+        tabla = cargar_oferta_con_coordenadas(
+            origen=contenido,
+            nombre_fuente=nombre,
+        )
 
-            traza.registrar(
-                "Geocodificación",
-                "No se reutilizaron coordenadas del "
-                "CSV del proyecto porque el archivo "
-                "cargado tiene una huella diferente; "
-                "los identificadores dependen del "
-                "orden de filas.",
-                nivel=NivelTraza.ADVERTENCIA,
-                filas=len(tabla),
+        sedes_quirurgicas = tabla.loc[
+            tabla["es_quirurgico"]
+            .fillna(False)
+            .astype(bool)
+        ].drop_duplicates(
+            subset=["sede_id"]
+        )
+        sedes_asociadas = int(
+            sedes_quirurgicas[
+                "direccion_normalizada"
+            ].notna().sum()
+        )
+        sedes_totales = len(sedes_quirurgicas)
+        sedes_con_coordenadas = int(
+            sedes_quirurgicas[
+                "coordenada_valida"
+            ].fillna(False).astype(bool).sum()
+        )
+
+        if misma_fuente_binaria:
+            mensaje_geocodificacion = (
+                f"Se asociaron {sedes_asociadas} de "
+                f"{sedes_totales} sedes quirúrgicas por "
+                "coincidencia única de nombre y dirección; "
+                f"{sedes_con_coordenadas} tienen "
+                "coordenadas válidas."
             )
+            nivel_geocodificacion = NivelTraza.EXITO
+        else:
+            sedes_sin_coincidencia = (
+                sedes_totales - sedes_asociadas
+            )
+            if sedes_sin_coincidencia:
+                mensaje_geocodificacion = (
+                    "La huella del archivo difiere de la "
+                    "fuente original. Se asociaron "
+                    f"{sedes_asociadas} de {sedes_totales} "
+                    "sedes quirúrgicas solo mediante "
+                    "coincidencia única de nombre y "
+                    "dirección; "
+                    f"{sedes_sin_coincidencia} sin "
+                    "coincidencia segura; "
+                    f"{sedes_con_coordenadas} tienen "
+                    "coordenadas válidas."
+                )
+                nivel_geocodificacion = (
+                    NivelTraza.ADVERTENCIA
+                )
+            else:
+                mensaje_geocodificacion = (
+                    "Aunque la huella del archivo difiere, "
+                    "se asociaron todas las sedes quirúrgicas "
+                    "mediante coincidencia única de nombre y "
+                    "dirección; "
+                    f"{sedes_con_coordenadas} tienen "
+                    "coordenadas válidas."
+                )
+                nivel_geocodificacion = NivelTraza.EXITO
+
+        traza.registrar(
+            "Geocodificación",
+            mensaje_geocodificacion,
+            nivel=nivel_geocodificacion,
+            filas=sedes_asociadas,
+        )
 
         traza.registrar(
             "Transformación",
@@ -297,7 +328,6 @@ def ejecutar_etl(
         _registrar_mapeo_campos(
             tabla,
             traza,
-            incluir_geocodificacion,
         )
 
         quirurgicas = tabla[

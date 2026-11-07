@@ -19,6 +19,7 @@ Principios de diseño:
     coordenadas ni categorías de relleno.
 """
 
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
@@ -106,6 +107,21 @@ def _sin_saltos(texto):
 
     return " ".join(
         str(texto).split()
+    )
+
+
+def _normalizar_clave_sede(valor):
+    """Normaliza nombre o dirección sin eliminar diferencias de identidad."""
+
+    if pd.isna(valor):
+        return ""
+
+    texto = unicodedata.normalize(
+        "NFKC",
+        str(valor),
+    )
+    return " ".join(
+        texto.casefold().split()
     )
 
 
@@ -595,8 +611,10 @@ def cargar_oferta_con_coordenadas(
 ):
     """Combina la oferta quirúrgica con las coordenadas.
 
-    La unión se realiza por ``sede_id`` y conserva todos los registros
-    de oferta, incluso si una sede no pudo geocodificarse.
+    La unión se realiza por coincidencia única de nombre y dirección
+    normalizados, no por el índice de fila. Así conserva la relación
+    correcta aunque cambie el orden o la representación binaria del CSV.
+    Los registros ambiguos o sin coincidencia permanecen sin coordenadas.
 
     Una sede puede aparecer en varias filas cuando registra más de un
     servicio, pero debe existir una sola fila de coordenadas por sede.
@@ -607,8 +625,8 @@ def cargar_oferta_con_coordenadas(
         Fuente alternativa de la oferta de cirugía. Cuando es ``None`` se
         usa el archivo incluido, conservando el comportamiento histórico.
         Las coordenadas geocodificadas siempre provienen del archivo
-        procesado del proyecto, porque una fuente cargada por el usuario
-        no trae esas coordenadas pre-calculadas.
+        procesado del proyecto. Solo se reutilizan coordenadas cuando el
+        nombre y la dirección coinciden de forma única.
 
     nombre_fuente : str, opcional
         Nombre descriptivo de la fuente para los mensajes de error.
@@ -620,8 +638,64 @@ def cargar_oferta_con_coordenadas(
     )
     sedes = cargar_sedes_geocodificadas()
 
+    claves_identidad = [
+        "_clave_sede",
+        "_clave_direccion",
+    ]
+
+    sedes_oferta = oferta[
+        [
+            "sede_id",
+            "sede",
+            "direccion",
+        ]
+    ].drop_duplicates(
+        subset=["sede_id"]
+    ).copy()
+
+    sedes_oferta["_clave_sede"] = (
+        sedes_oferta["sede"].map(
+            _normalizar_clave_sede
+        )
+    )
+    sedes_oferta["_clave_direccion"] = (
+        sedes_oferta["direccion"].map(
+            _normalizar_clave_sede
+        )
+    )
+
+    sedes["_clave_sede"] = (
+        sedes["sede"].map(
+            _normalizar_clave_sede
+        )
+    )
+    sedes["_clave_direccion"] = (
+        sedes["direccion"].map(
+            _normalizar_clave_sede
+        )
+    )
+
+    sedes_oferta = sedes_oferta.loc[
+        sedes_oferta[
+            claves_identidad
+        ].ne("").all(axis=1)
+        & ~sedes_oferta.duplicated(
+            subset=claves_identidad,
+            keep=False,
+        )
+    ]
+    sedes = sedes.loc[
+        sedes[
+            claves_identidad
+        ].ne("").all(axis=1)
+        & ~sedes.duplicated(
+            subset=claves_identidad,
+            keep=False,
+        )
+    ]
+
     columnas_para_union = [
-        "sede_id",
+        *claves_identidad,
         "direccion_normalizada",
         "latitud",
         "longitud",
@@ -629,8 +703,24 @@ def cargar_oferta_con_coordenadas(
         "coordenada_valida",
     ]
 
-    resultado = oferta.merge(
+    coordenadas_por_sede = sedes_oferta.merge(
         sedes[columnas_para_union],
+        on=claves_identidad,
+        how="inner",
+        validate="one_to_one",
+    )[
+        [
+            "sede_id",
+            "direccion_normalizada",
+            "latitud",
+            "longitud",
+            "geocodificado",
+            "coordenada_valida",
+        ]
+    ]
+
+    resultado = oferta.merge(
+        coordenadas_por_sede,
         on="sede_id",
         how="left",
         validate="many_to_one",

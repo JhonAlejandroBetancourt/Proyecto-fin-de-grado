@@ -39,18 +39,18 @@ test("12 - Carga CSV y trazabilidad del proceso ETL", async ({ page, evidence })
   );
   await expect(page.locator("#kpi-sedes-oferta")).toHaveText("1");
   await expect(historico).toContainText("Geocodificación");
-  await expect(mapeo).toContainText("sede_id");
-  await expect(mapeo).toContainText("No se reutilizan coordenadas");
+  await expect(mapeo).toContainText("nombre de sede y dirección normalizados");
+  await expect(historico).toContainText("1 sin coincidencia segura");
   await expect(page.locator("#mapa-oferta-quirurgica")).toContainText(
-    "CSV distinto a la fuente original",
+    "coinciden de forma única",
   );
   evidence.addStep(
-    "Cargar un CSV compatible y comprobar la actualización del dataset y el motivo por el que no se muestran coordenadas.",
+    "Cargar un CSV nuevo y comprobar que la asociación segura no reutiliza coordenadas de otras sedes.",
   );
   await captureEvidence(
     page,
     evidence,
-    "El CSV válido actualiza el indicador, conserva la traza y evita reutilizar coordenadas de otra fuente.",
+    "El CSV nuevo actualiza el indicador, registra la ausencia de coincidencias seguras y no dibuja ubicaciones incorrectas.",
     page.locator(".panel-etl"),
   );
 

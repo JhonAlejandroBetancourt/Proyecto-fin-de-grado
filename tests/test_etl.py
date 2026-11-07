@@ -137,8 +137,8 @@ def test_ejecutar_etl_huella_reproducible():
     assert resultado.huella_sha256 == esperada
 
 
-def test_etl_no_reutiliza_coordenadas_para_csv_diferente():
-    """Un CSV alterno no debe heredar coordenadas por índice de fila."""
+def test_etl_asocia_coordenadas_si_solo_cambia_la_huella():
+    """Cambios de bytes no deben descartar coincidencias seguras."""
 
     contenido = (
         ARCHIVO_CIRUGIA_PLASTICA.read_bytes()
@@ -152,16 +152,170 @@ def test_etl_no_reutiliza_coordenadas_para_csv_diferente():
 
     assert resultado.exito is True
     assert resultado.tabla is not None
+    fuente = ejecutar_etl()
+    assert fuente.tabla is not None
+
+    assert resultado.huella_sha256 != fuente.huella_sha256
     assert resultado.tabla[
         "coordenada_valida"
-    ].eq(False).all()
-    assert resultado.tabla[
-        "latitud"
-    ].isna().all()
+    ].sum() == fuente.tabla[
+        "coordenada_valida"
+    ].sum()
     assert any(
-        paso.nivel is NivelTraza.ADVERTENCIA
+        paso.nivel is NivelTraza.EXITO
         for paso in resultado.traza.pasos
+        if paso.nombre == "Geocodificación"
     )
+    assert "todas las sedes quirúrgicas" in next(
+        paso.mensaje
+        for paso in resultado.traza.pasos
+        if paso.nombre == "Geocodificación"
+    )
+
+
+def test_etl_asocia_coordenadas_independientemente_del_orden():
+    """Una fuente reordenada conserva solo las coordenadas por identidad."""
+
+    fuente_original = pd.read_csv(
+        ARCHIVO_CIRUGIA_PLASTICA,
+        sep=";",
+        encoding="utf-8-sig",
+        dtype=str,
+    )
+    contenido_reordenado = fuente_original.iloc[
+        ::-1
+    ].to_csv(
+        sep=";",
+        index=False,
+        lineterminator="\n",
+    ).encode("utf-8")
+
+    original = ejecutar_etl()
+    reordenado = ejecutar_etl(
+        origen=contenido_reordenado,
+        nombre_fuente="reordenado.csv",
+    )
+
+    assert original.tabla is not None
+    assert reordenado.tabla is not None
+
+    columnas = [
+        "sede",
+        "direccion",
+        "latitud",
+        "longitud",
+    ]
+
+    coordenadas_originales = (
+        original.tabla.loc[
+            original.tabla["coordenada_valida"],
+            columnas,
+        ]
+        .drop_duplicates(
+            subset=["sede", "direccion"]
+        )
+        .set_index(
+            ["sede", "direccion"]
+        )
+        .sort_index()
+    )
+    coordenadas_reordenadas = (
+        reordenado.tabla.loc[
+            reordenado.tabla["coordenada_valida"],
+            columnas,
+        ]
+        .drop_duplicates(
+            subset=["sede", "direccion"]
+        )
+        .set_index(
+            ["sede", "direccion"]
+        )
+        .sort_index()
+    )
+
+    pd.testing.assert_frame_equal(
+        coordenadas_reordenadas,
+        coordenadas_originales,
+    )
+
+
+def test_etl_no_asocia_identidades_ambiguas():
+    """Una sede duplicada por nombre y dirección no hereda coordenadas."""
+
+    from quiron.data.loader import (
+        ARCHIVO_SEDES_GEOCODIFICADAS,
+    )
+
+    fuente = pd.read_csv(
+        ARCHIVO_CIRUGIA_PLASTICA,
+        sep=";",
+        encoding="utf-8-sig",
+        dtype=str,
+    )
+    sedes_geocodificadas = pd.read_csv(
+        ARCHIVO_SEDES_GEOCODIFICADAS,
+        dtype=str,
+        encoding="utf-8-sig",
+    )
+    identidades_validas = set(
+        zip(
+            sedes_geocodificadas.loc[
+                sedes_geocodificadas[
+                    "geocodificado"
+                ].eq("True"),
+                "sede",
+            ],
+            sedes_geocodificadas.loc[
+                sedes_geocodificadas[
+                    "geocodificado"
+                ].eq("True"),
+                "direccion",
+            ],
+        )
+    )
+    indice = next(
+        indice
+        for indice, fila in fuente.iterrows()
+        if (
+            fila["SEDE -NOMBRE"],
+            fila["DIRECCION"],
+        ) in identidades_validas
+    )
+    fila_duplicada = fuente.loc[
+        [indice]
+    ]
+    fuente_ambigua = pd.concat(
+        [
+            fuente,
+            fila_duplicada,
+        ],
+        ignore_index=True,
+    )
+
+    resultado = ejecutar_etl(
+        origen=fuente_ambigua.to_csv(
+            sep=";",
+            index=False,
+            lineterminator="\n",
+        ).encode("utf-8"),
+        nombre_fuente="identidad-ambigua.csv",
+    )
+
+    assert resultado.tabla is not None
+    nombre = fila_duplicada.iloc[0][
+        "SEDE -NOMBRE"
+    ]
+    direccion = fila_duplicada.iloc[0][
+        "DIRECCION"
+    ]
+    registros_ambiguos = resultado.tabla.loc[
+        resultado.tabla["sede"].eq(nombre)
+        & resultado.tabla["direccion"].eq(direccion)
+    ]
+
+    assert not registros_ambiguos[
+        "coordenada_valida"
+    ].any()
 
 
 def test_ejecutar_etl_con_bytes_en_memoria():
