@@ -3,12 +3,13 @@ import os
 from quiron.server import create_app
 
 
-app = create_app()
-server = app.server
+dashboard = create_app()
+app = dashboard.server
+server = app
 
 
 if __name__ == "__main__":
-    app.run(
+    dashboard.run(
         debug=False,
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "8050")),
