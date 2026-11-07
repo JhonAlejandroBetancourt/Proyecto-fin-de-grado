@@ -41,8 +41,11 @@ test("12 - Carga CSV y trazabilidad del proceso ETL", async ({ page, evidence })
   await expect(historico).toContainText("Geocodificación");
   await expect(mapeo).toContainText("sede_id");
   await expect(mapeo).toContainText("No se reutilizan coordenadas");
+  await expect(page.locator("#mapa-oferta-quirurgica")).toContainText(
+    "CSV distinto a la fuente original",
+  );
   evidence.addStep(
-    "Cargar un CSV compatible y comprobar la actualización del dataset y la advertencia de seguridad geográfica.",
+    "Cargar un CSV compatible y comprobar la actualización del dataset y el motivo por el que no se muestran coordenadas.",
   );
   await captureEvidence(
     page,
