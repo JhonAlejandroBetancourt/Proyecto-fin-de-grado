@@ -383,6 +383,88 @@ def test_valida_archivo_documentado(
     )
 
 
+def test_huella_sha256_del_archivo_fuente(
+    tabla_oferta,
+    tmp_path,
+):
+    """Comprueba que la huella SHA-256 sea correcta y reproducible."""
+
+    import hashlib
+
+    contenido = "contenido de prueba para huella"
+
+    ruta_archivo = (
+        tmp_path
+        / ARCHIVO_PRINCIPAL
+    )
+
+    ruta_archivo.write_text(
+        contenido,
+        encoding="utf-8",
+    )
+
+    esperada = hashlib.sha256(
+        contenido.encode("utf-8")
+    ).hexdigest()
+
+    metadata = obtener_metadata(
+        tabla_oferta,
+        ruta_archivo,
+    )
+
+    huella = metadata[
+        "archivo_fuente"
+    ][
+        "huella_sha256"
+    ]
+
+    assert huella == esperada
+
+    assert len(huella) == 64
+
+
+def test_huella_sha256_detecta_cambios(
+    tabla_oferta,
+    tmp_path,
+):
+    """Comprueba que la huella cambie si cambia el contenido."""
+
+    ruta_archivo = (
+        tmp_path
+        / ARCHIVO_PRINCIPAL
+    )
+
+    ruta_archivo.write_text(
+        "version uno",
+        encoding="utf-8",
+    )
+
+    huella_uno = obtener_metadata(
+        tabla_oferta,
+        ruta_archivo,
+    )[
+        "archivo_fuente"
+    ][
+        "huella_sha256"
+    ]
+
+    ruta_archivo.write_text(
+        "version dos",
+        encoding="utf-8",
+    )
+
+    huella_dos = obtener_metadata(
+        tabla_oferta,
+        ruta_archivo,
+    )[
+        "archivo_fuente"
+    ][
+        "huella_sha256"
+    ]
+
+    assert huella_uno != huella_dos
+
+
 def test_rechaza_archivo_inexistente(
     tabla_oferta,
     tmp_path,

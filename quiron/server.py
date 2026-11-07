@@ -23,8 +23,8 @@ import dash
 from quiron.callbacks import (
     registrar_callbacks,
 )
-from quiron.data.loader import (
-    cargar_oferta_con_coordenadas,
+from quiron.etl import (
+    ejecutar_etl,
 )
 from quiron.data.metrics import (
     conteo_por_naturaleza,
@@ -226,9 +226,20 @@ def _crear_aplicacion_dash():
 def create_app():
     """Crea, configura y devuelve la aplicación completa."""
 
-    tabla = (
-        cargar_oferta_con_coordenadas()
-    )
+    resultado_etl = ejecutar_etl()
+
+    if not resultado_etl.exito:
+        errores = "; ".join(
+            error["mensaje"]
+            for error in resultado_etl.traza.errores
+        )
+        raise RuntimeError(
+            "No fue posible cargar el conjunto "
+            "de datos inicial: "
+            f"{errores}"
+        )
+
+    tabla = resultado_etl.tabla
 
     datos_iniciales = (
         _construir_datos_iniciales(
@@ -237,6 +248,9 @@ def create_app():
     )
 
     app = _crear_aplicacion_dash()
+    app.server.config["MAX_CONTENT_LENGTH"] = (
+        16 * 1024 * 1024
+    )
 
     cobertura = datos_iniciales[
         "cobertura"
@@ -271,6 +285,9 @@ def create_app():
         metadata=datos_iniciales[
             "metadata"
         ],
+        traza_etl=(
+            resultado_etl.como_dict_traza()
+        ),
     )
 
     registrar_callbacks(

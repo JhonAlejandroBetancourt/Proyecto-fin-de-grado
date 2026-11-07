@@ -10,6 +10,49 @@ python run.py
 
 Abre http://localhost:8050
 
+## Panel de proceso ETL
+
+El panel **Proceso ETL** muestra los pasos ejecutados al cargar la fuente
+incluida y permite subir un archivo CSV compatible para volver a procesar
+los datos en la sesión actual. El histórico registra también los intentos
+fallidos; se muestran por separado los errores y el mapeo de campos desde
+la fuente hasta el conjunto transformado.
+
+La carga acepta un único archivo `.csv` de hasta 10 MB. Debe conservar la
+estructura de la fuente oficial: separador `;`, codificación UTF-8 y
+columnas de sede, dirección, contacto, naturaleza, tipo de prestador y
+servicios codificados. Si la lectura o validación falla, el dashboard
+mantiene el último conjunto de datos válido. Una carga correcta actualiza
+los indicadores, filtros, mapa, tablas y exportaciones; el archivo cargado
+permanece solo en el estado de la sesión del navegador y no se guarda en el
+servidor.
+
+Las coordenadas se asocian mediante una coincidencia única del nombre de la
+sede y su dirección normalizados, no por el orden de las filas ni por la
+huella binaria completa del archivo. Así, volver a guardar o reordenar un CSV
+no elimina coordenadas válidas, y las sedes ambiguas o sin coincidencia se
+mantienen sin ubicación para evitar asignaciones incorrectas.
+
+## Pruebas unitarias y cobertura
+
+Las pruebas unitarias cubren las capas de datos, filtros, metadata,
+exportación, asistente y normalización. Desde la raíz del proyecto:
+
+```powershell
+pip install -r requirements.txt
+pytest
+```
+
+Para medir la cobertura de código del paquete `quiron`:
+
+```powershell
+pytest --cov=quiron
+```
+
+Añade `--cov-report=html` para generar un informe navegable en `htmlcov/`
+(carpeta excluida de Git). La configuración de `pytest` y `coverage` vive en
+`pyproject.toml`.
+
 ## Asistente de voz con Gemini
 
 El asistente acepta solicitudes escritas o dictadas para aplicar los filtros

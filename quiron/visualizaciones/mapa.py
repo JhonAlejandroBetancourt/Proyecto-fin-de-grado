@@ -377,16 +377,46 @@ def _preparar_sedes_para_mapa(
     return sedes
 
 
-def _crear_mapa_sin_datos():
+def _crear_mapa_sin_datos(tabla):
     """Crea una figura informativa cuando no existen puntos válidos."""
 
     figura = go.Figure()
 
+    sedes_quirurgicas = tabla.loc[
+        tabla[
+            "es_quirurgico"
+        ]
+        .fillna(False)
+        .astype(bool)
+    ]
+
+    if sedes_quirurgicas.empty:
+        mensaje = (
+            "Los filtros actuales no devuelven sedes "
+            "con servicios quirúrgicos para mostrar."
+        )
+    elif not sedes_quirurgicas[
+        "coordenada_valida"
+    ].fillna(False).astype(bool).any():
+        mensaje = (
+            "Los resultados actuales no tienen "
+            "coordenadas válidas. Quirón asocia "
+            "coordenadas solo cuando el nombre y la "
+            "dirección coinciden de forma única con la "
+            "fuente geocodificada. Verifica esos campos "
+            "o carga el CSV fuente original; las "
+            "coincidencias ambiguas no se muestran para "
+            "evitar ubicaciones incorrectas."
+        )
+    else:
+        mensaje = (
+            "No hay sedes con coordenadas válidas entre "
+            "los resultados actuales. Ajusta los filtros "
+            "o verifica las coordenadas de la fuente."
+        )
+
     figura.add_annotation(
-        text=(
-            "No hay sedes con coordenadas válidas para mostrar. "
-            "Revisa el archivo sedes_geocodificadas.csv."
-        ),
+        text=mensaje,
         x=0.5,
         y=0.5,
         xref="paper",
@@ -446,7 +476,9 @@ def crear_mapa_oferta_quirurgica(
     )
 
     if sedes.empty:
-        return _crear_mapa_sin_datos()
+        return _crear_mapa_sin_datos(
+            tabla
+        )
 
     figura = px.scatter_map(
         sedes,

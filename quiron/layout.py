@@ -1299,6 +1299,307 @@ def _pie_de_pagina(
     )
 
 
+def _tabla_etl(
+    titulo,
+    identificador,
+    columnas,
+    data=None,
+):
+    """Construye una tabla del panel ETL actualizable por callback."""
+
+    return html.Article(
+        className="tarjeta-tabla tarjeta-etl",
+        children=[
+            html.H3(titulo),
+            dash_table.DataTable(
+                id=identificador,
+                data=data or [],
+                columns=columnas,
+                style_as_list_view=True,
+                page_action="native",
+                page_size=20,
+                sort_action="native",
+                style_table={
+                    "overflowX": "auto",
+                },
+                style_header={
+                    "backgroundColor": "#330968",
+                    "color": "#FFFFFF",
+                    "fontWeight": "600",
+                    "textAlign": "left",
+                    "border": "none",
+                },
+                style_cell={
+                    "padding": "10px 12px",
+                    "fontFamily": (
+                        "Segoe UI, Arial, "
+                        "sans-serif"
+                    ),
+                    "fontSize": "13px",
+                    "textAlign": "left",
+                    "whiteSpace": "normal",
+                    "height": "auto",
+                    "border": "none",
+                    "borderBottom": (
+                        "1px solid #E4DEF2"
+                    ),
+                },
+                style_data={
+                    "backgroundColor": "#FFFFFF",
+                    "color": "#231942",
+                },
+                style_data_conditional=[
+                    {
+                        "if": {
+                            "row_index": "odd",
+                        },
+                        "backgroundColor": (
+                            "#F5F3FA"
+                        ),
+                    },
+                    {
+                        "if": {
+                            "filter_query": (
+                                "{nivel} = error"
+                            ),
+                            "column_id": "nivel",
+                        },
+                        "color": "#B00020",
+                        "fontWeight": "600",
+                    },
+                    {
+                        "if": {
+                            "filter_query": (
+                                "{nivel} = "
+                                "advertencia"
+                            ),
+                            "column_id": "nivel",
+                        },
+                        "color": "#9A6700",
+                        "fontWeight": "600",
+                    },
+                    {
+                        "if": {
+                            "filter_query": (
+                                "{nivel} = exito"
+                            ),
+                            "column_id": "nivel",
+                        },
+                        "color": "#1B7A3D",
+                        "fontWeight": "600",
+                    },
+                ],
+            ),
+        ],
+    )
+
+
+def _panel_etl(
+    metadata,
+    traza_etl=None,
+):
+    """Construye el panel de proceso ETL con carga de CSV.
+
+    Muestra la carga de un CSV, el histórico de pasos, los errores y la
+    traza de mapeo de campos. Los callbacks rellenan las tablas y el
+    estado a partir de la ejecución instrumentada del ETL.
+    """
+
+    fuente_inicial = metadata.get(
+        "archivo_principal",
+        "archivo incluido",
+    )
+    traza_etl = traza_etl or {}
+    huella_inicial = traza_etl.get(
+        "huella_sha256"
+    )
+    sufijo_huella = (
+        f" · SHA-256: {huella_inicial}"
+        if huella_inicial
+        else ""
+    )
+
+    return html.Section(
+        className="panel-etl",
+        **{
+            "aria-labelledby": "titulo-etl",
+        },
+        children=[
+            html.Div(
+                className="encabezado-etl",
+                children=[
+                    html.Div(
+                        children=[
+                            html.H2(
+                                "Proceso ETL",
+                                id="titulo-etl",
+                            ),
+                            html.P(
+                                (
+                                    "Carga un CSV con la "
+                                    "misma estructura de la "
+                                    "fuente para reejecutar "
+                                    "el proceso de extracción, "
+                                    "transformación y carga. "
+                                    "El histórico, los errores "
+                                    "y la traza de mapeo de "
+                                    "campos se muestran abajo."
+                                ),
+                                className=(
+                                    "descripcion-seccion"
+                                ),
+                            ),
+                        ],
+                    ),
+                    html.Span(
+                        "Observabilidad del ETL",
+                        className="etiqueta-etl",
+                    ),
+                ],
+            ),
+            dcc.Upload(
+                id="etl-carga-csv",
+                className="etl-zona-carga",
+                accept=".csv",
+                multiple=False,
+                children=html.Div(
+                    children=[
+                        html.Span(
+                            "⬆",
+                            className="etl-icono-carga",
+                            **{
+                                "aria-hidden": "true",
+                            },
+                        ),
+                        html.Span(
+                            (
+                                "Arrastra un CSV aquí o "
+                                "haz clic para seleccionarlo"
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+            html.Div(
+                id="etl-estado",
+                className="etl-estado",
+                children=(
+                    "Conjunto de datos activo: "
+                    f"{fuente_inicial} "
+                    "(incluido en el proyecto)"
+                    f"{sufijo_huella}."
+                ),
+                **{
+                    "aria-live": "polite",
+                },
+            ),
+            html.Div(
+                id="etl-panel-errores",
+                className="etl-errores etl-oculto",
+                children=[],
+                **{
+                    "aria-live": "assertive",
+                },
+            ),
+            html.Div(
+                className="rejilla-etl",
+                children=[
+                    _tabla_etl(
+                        "Histórico del proceso",
+                        "etl-tabla-historico",
+                        [
+                            {
+                                "name": "Ejecución",
+                                "id": "ejecucion",
+                            },
+                            {
+                                "name": "#",
+                                "id": "orden",
+                            },
+                            {
+                                "name": "Paso",
+                                "id": "nombre",
+                            },
+                            {
+                                "name": "Nivel",
+                                "id": "nivel",
+                            },
+                            {
+                                "name": "Mensaje",
+                                "id": "mensaje",
+                            },
+                            {
+                                "name": "Hora",
+                                "id": "marca_tiempo",
+                            },
+                            {
+                                "name": "ms",
+                                "id": "duracion_ms",
+                            },
+                            {
+                                "name": "Filas",
+                                "id": "filas",
+                            },
+                        ],
+                        data=traza_etl.get(
+                            "historial",
+                            [
+                                {
+                                    **paso,
+                                    "ejecucion": 1,
+                                }
+                                for paso in traza_etl.get(
+                                    "pasos",
+                                    [],
+                                )
+                            ],
+                        ),
+                    ),
+                    _tabla_etl(
+                        "Traza de mapeo de campos",
+                        "etl-tabla-mapeo",
+                        [
+                            {
+                                "name": (
+                                    "Campo origen"
+                                ),
+                                "id": "campo_origen",
+                            },
+                            {
+                                "name": (
+                                    "Campo destino"
+                                ),
+                                "id": "campo_destino",
+                            },
+                            {
+                                "name": (
+                                    "Transformación"
+                                ),
+                                "id": (
+                                    "transformacion"
+                                ),
+                            },
+                            {
+                                "name": "Filas",
+                                "id": "filas",
+                            },
+                        ],
+                        data=traza_etl.get(
+                            "mapeos",
+                            [],
+                        ),
+                    ),
+                ],
+            ),
+            dcc.Store(id="etl-dataset-activo"),
+            dcc.Store(
+                id="etl-traza",
+                data=traza_etl,
+            ),
+        ],
+    )
+
+
 def build_layout(
     resumen,
     por_servicio,
@@ -1308,6 +1609,7 @@ def build_layout(
     sedes_sin_coordenadas,
     opciones_filtros,
     metadata,
+    traza_etl=None,
 ):
     """Construye la interfaz completa del dashboard."""
 
@@ -1319,6 +1621,10 @@ def build_layout(
                 children=[
                     _panel_trazabilidad(
                         metadata
+                    ),
+                    _panel_etl(
+                        metadata,
+                        traza_etl,
                     ),
                     _panel_filtros(
                         opciones_filtros

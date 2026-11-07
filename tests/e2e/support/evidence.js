@@ -64,6 +64,11 @@ const SCENARIOS = {
     description:
       "Envía una solicitud de prueba a Gemini real y comprueba que su respuesta cambia los filtros e indicadores del dashboard.",
   },
+  "12": {
+    title: "Carga CSV y trazabilidad del proceso ETL",
+    description:
+      "Carga un CSV válido y uno con esquema inválido; verifica el histórico, el mapeo de campos, la actualización de indicadores y la conservación del último conjunto válido ante errores.",
+  },
 };
 
 const test = base.extend({

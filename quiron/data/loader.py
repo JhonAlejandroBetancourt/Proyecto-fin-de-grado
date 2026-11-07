@@ -19,6 +19,7 @@ Principios de diseño:
     coordenadas ni categorías de relleno.
 """
 
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
@@ -109,6 +110,21 @@ def _sin_saltos(texto):
     )
 
 
+def _normalizar_clave_sede(valor):
+    """Normaliza nombre o dirección sin eliminar diferencias de identidad."""
+
+    if pd.isna(valor):
+        return ""
+
+    texto = unicodedata.normalize(
+        "NFKC",
+        str(valor),
+    )
+    return " ".join(
+        texto.casefold().split()
+    )
+
+
 def _columnas_de_servicio(columnas):
     """Identifica las columnas cuyo nombre inicia con un código."""
 
@@ -161,20 +177,90 @@ def _normalizar_booleano(valor):
     )
 
 
-def cargar_cirugia_plastica():
+def _resolver_origen_cirugia(
+    origen,
+    nombre_fuente,
+):
+    """Normaliza la fuente de datos para ``cargar_cirugia_plastica``.
+
+    Devuelve una tupla ``(fuente, nombre)`` donde ``fuente`` es un objeto
+    apto para ``pandas.read_csv`` y ``nombre`` es la etiqueta usada en los
+    mensajes de error.
+    """
+
+    import io
+
+    if origen is None:
+        _validar_existencia(
+            ARCHIVO_CIRUGIA_PLASTICA
+        )
+
+        return (
+            ARCHIVO_CIRUGIA_PLASTICA,
+            ARCHIVO_CIRUGIA_PLASTICA.name,
+        )
+
+    if isinstance(origen, bytes):
+        return (
+            io.BytesIO(origen),
+            nombre_fuente
+            or "archivo cargado",
+        )
+
+    if isinstance(
+        origen,
+        (str, Path),
+    ):
+        ruta = Path(origen)
+
+        _validar_existencia(ruta)
+
+        return (
+            ruta,
+            nombre_fuente or ruta.name,
+        )
+
+    return (
+        origen,
+        nombre_fuente
+        or "archivo cargado",
+    )
+
+
+def cargar_cirugia_plastica(
+    origen=None,
+    nombre_fuente=None,
+):
     """Transforma la oferta desde formato ancho a formato largo.
 
     El resultado contiene una fila por combinación de sede y servicio.
     La columna ``es_quirurgico`` identifica los códigos incluidos en el
     alcance actual del proyecto.
+
+    Parámetros
+    ----------
+    origen : ruta, buffer o ``bytes``, opcional
+        Fuente de datos alternativa. Cuando es ``None`` se utiliza el
+        archivo incluido en el proyecto, de modo que la llamada sin
+        argumentos mantiene exactamente el comportamiento histórico.
+
+        Se admite una ruta (``str`` o ``Path``), un objeto de archivo en
+        memoria (por ejemplo ``io.BytesIO``) o el contenido en ``bytes``,
+        lo que permite procesar un CSV cargado por el usuario sin
+        escribirlo en disco.
+
+    nombre_fuente : str, opcional
+        Nombre descriptivo de la fuente, usado solo en los mensajes de
+        error. Si no se indica, se deduce del origen.
     """
 
-    _validar_existencia(
-        ARCHIVO_CIRUGIA_PLASTICA
+    fuente, nombre = _resolver_origen_cirugia(
+        origen,
+        nombre_fuente,
     )
 
     crudo = pd.read_csv(
-        ARCHIVO_CIRUGIA_PLASTICA,
+        fuente,
         sep=";",
         encoding="utf-8-sig",
         dtype=str,
@@ -195,7 +281,7 @@ def cargar_cirugia_plastica():
     _validar_columnas(
         crudo,
         COLUMNAS_CIRUGIA_OBLIGATORIAS,
-        ARCHIVO_CIRUGIA_PLASTICA.name,
+        nombre,
     )
 
     crudo = crudo.dropna(
@@ -519,21 +605,97 @@ def cargar_sedes_geocodificadas():
     return tabla
 
 
-def cargar_oferta_con_coordenadas():
+def cargar_oferta_con_coordenadas(
+    origen=None,
+    nombre_fuente=None,
+):
     """Combina la oferta quirúrgica con las coordenadas.
 
-    La unión se realiza por ``sede_id`` y conserva todos los registros
-    de oferta, incluso si una sede no pudo geocodificarse.
+    La unión se realiza por coincidencia única de nombre y dirección
+    normalizados, no por el índice de fila. Así conserva la relación
+    correcta aunque cambie el orden o la representación binaria del CSV.
+    Los registros ambiguos o sin coincidencia permanecen sin coordenadas.
 
     Una sede puede aparecer en varias filas cuando registra más de un
     servicio, pero debe existir una sola fila de coordenadas por sede.
+
+    Parámetros
+    ----------
+    origen : ruta, buffer o ``bytes``, opcional
+        Fuente alternativa de la oferta de cirugía. Cuando es ``None`` se
+        usa el archivo incluido, conservando el comportamiento histórico.
+        Las coordenadas geocodificadas siempre provienen del archivo
+        procesado del proyecto. Solo se reutilizan coordenadas cuando el
+        nombre y la dirección coinciden de forma única.
+
+    nombre_fuente : str, opcional
+        Nombre descriptivo de la fuente para los mensajes de error.
     """
 
-    oferta = cargar_cirugia_plastica()
+    oferta = cargar_cirugia_plastica(
+        origen,
+        nombre_fuente,
+    )
     sedes = cargar_sedes_geocodificadas()
 
+    claves_identidad = [
+        "_clave_sede",
+        "_clave_direccion",
+    ]
+
+    sedes_oferta = oferta[
+        [
+            "sede_id",
+            "sede",
+            "direccion",
+        ]
+    ].drop_duplicates(
+        subset=["sede_id"]
+    ).copy()
+
+    sedes_oferta["_clave_sede"] = (
+        sedes_oferta["sede"].map(
+            _normalizar_clave_sede
+        )
+    )
+    sedes_oferta["_clave_direccion"] = (
+        sedes_oferta["direccion"].map(
+            _normalizar_clave_sede
+        )
+    )
+
+    sedes["_clave_sede"] = (
+        sedes["sede"].map(
+            _normalizar_clave_sede
+        )
+    )
+    sedes["_clave_direccion"] = (
+        sedes["direccion"].map(
+            _normalizar_clave_sede
+        )
+    )
+
+    sedes_oferta = sedes_oferta.loc[
+        sedes_oferta[
+            claves_identidad
+        ].ne("").all(axis=1)
+        & ~sedes_oferta.duplicated(
+            subset=claves_identidad,
+            keep=False,
+        )
+    ]
+    sedes = sedes.loc[
+        sedes[
+            claves_identidad
+        ].ne("").all(axis=1)
+        & ~sedes.duplicated(
+            subset=claves_identidad,
+            keep=False,
+        )
+    ]
+
     columnas_para_union = [
-        "sede_id",
+        *claves_identidad,
         "direccion_normalizada",
         "latitud",
         "longitud",
@@ -541,8 +703,24 @@ def cargar_oferta_con_coordenadas():
         "coordenada_valida",
     ]
 
-    resultado = oferta.merge(
+    coordenadas_por_sede = sedes_oferta.merge(
         sedes[columnas_para_union],
+        on=claves_identidad,
+        how="inner",
+        validate="one_to_one",
+    )[
+        [
+            "sede_id",
+            "direccion_normalizada",
+            "latitud",
+            "longitud",
+            "geocodificado",
+            "coordenada_valida",
+        ]
+    ]
+
+    resultado = oferta.merge(
+        coordenadas_por_sede,
         on="sede_id",
         how="left",
         validate="many_to_one",
