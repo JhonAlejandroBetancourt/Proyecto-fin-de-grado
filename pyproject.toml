@@ -1,2 +1,19 @@
 [tool.vercel]
 entrypoint = "run:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["quiron"]
+branch = true
+omit = [
+    "quiron/assets/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 1
