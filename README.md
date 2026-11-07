@@ -10,6 +10,29 @@ python run.py
 
 Abre http://localhost:8050
 
+## Panel de proceso ETL
+
+El panel **Proceso ETL** muestra los pasos ejecutados al cargar la fuente
+incluida y permite subir un archivo CSV compatible para volver a procesar
+los datos en la sesión actual. El histórico registra también los intentos
+fallidos; se muestran por separado los errores y el mapeo de campos desde
+la fuente hasta el conjunto transformado.
+
+La carga acepta un único archivo `.csv` de hasta 10 MB. Debe conservar la
+estructura de la fuente oficial: separador `;`, codificación UTF-8 y
+columnas de sede, dirección, contacto, naturaleza, tipo de prestador y
+servicios codificados. Si la lectura o validación falla, el dashboard
+mantiene el último conjunto de datos válido. Una carga correcta actualiza
+los indicadores, filtros, mapa, tablas y exportaciones; el archivo cargado
+permanece solo en el estado de la sesión del navegador y no se guarda en el
+servidor.
+
+Las coordenadas existentes solo se asocian cuando el contenido del CSV es
+idéntico al archivo fuente geocodificado. Para cualquier CSV diferente, el
+dashboard conserva los datos y deja las coordenadas sin resolver; así evita
+asignar ubicaciones incorrectas, ya que el identificador de sede actual se
+deriva del orden de las filas.
+
 ## Asistente de voz con Gemini
 
 El asistente acepta solicitudes escritas o dictadas para aplicar los filtros

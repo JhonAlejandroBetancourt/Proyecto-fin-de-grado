@@ -16,17 +16,27 @@ callback trabaja sobre copias filtradas y no modifica los datos
 originales.
 """
 
+import base64
+import io
 import json
 import uuid
+
+import pandas as pd
 
 from dash import (
     Input,
     Output,
     State,
     dcc,
+    html,
     no_update,
 )
 
+from quiron.etl import (
+    NivelTraza,
+    TrazaETL,
+    ejecutar_etl,
+)
 from quiron.asistente import (
     ErrorAsistente,
     buscar_sede_mencionada,
@@ -62,6 +72,10 @@ from quiron.visualizaciones.mapa import (
 
 TIPO_CONTENIDO_CSV = (
     "text/csv; charset=utf-8"
+)
+
+TAMANO_MAXIMO_CSV_ETL = (
+    10 * 1024 * 1024
 )
 
 
@@ -202,6 +216,153 @@ def _aplicar_filtros_actuales(
     )
 
 
+def _tarjeta_error(
+    titulo,
+    mensaje,
+):
+    """Construye una tarjeta visual para un error del ETL."""
+
+    return html.Div(
+        className="etl-error",
+        children=[
+            html.Strong(
+                f"{titulo}: "
+            ),
+            html.Span(mensaje),
+        ],
+    )
+
+
+def _traza_error_carga(
+    nombre_fuente,
+    mensaje,
+):
+    """Construye una traza completa para errores previos al ETL."""
+
+    traza = TrazaETL()
+    traza.registrar_error(
+        "Carga",
+        mensaje,
+    )
+    datos = traza.como_dict()
+    datos.update(
+        {
+            "huella_sha256": None,
+            "nombre_fuente": (
+                nombre_fuente
+                or "archivo cargado"
+            ),
+            "exito": False,
+        }
+    )
+    return datos
+
+
+def _combinar_historial_etl(
+    traza_actual,
+    traza_anterior,
+):
+    """Acumula las ejecuciones en la sesión del navegador."""
+
+    traza_anterior = traza_anterior or {}
+    historial = traza_anterior.get(
+        "historial",
+        traza_anterior.get("pasos", []),
+    )
+    historial = list(historial or [])
+    numero_ejecucion = int(
+        traza_anterior.get(
+            "numero_ejecucion",
+            1 if historial else 0,
+        )
+    ) + 1
+
+    pasos_actuales = list(
+        traza_actual.get("pasos", [])
+    )
+
+    if not pasos_actuales:
+        for error in traza_actual.get(
+            "errores",
+            [],
+        ):
+            pasos_actuales.append(
+                {
+                    "orden": (
+                        len(pasos_actuales) + 1
+                    ),
+                    "nombre": error.get(
+                        "paso",
+                        "Error",
+                    ),
+                    "nivel": NivelTraza.ERROR.value,
+                    "mensaje": error.get(
+                        "mensaje",
+                        "Error no especificado.",
+                    ),
+                    "marca_tiempo": error.get(
+                        "marca_tiempo",
+                        "",
+                    ),
+                    "duracion_ms": 0.0,
+                    "filas": None,
+                }
+            )
+
+    historial.extend(
+        {
+            **paso,
+            "ejecucion": numero_ejecucion,
+        }
+        for paso in pasos_actuales
+    )
+    traza_actual["historial"] = historial[-500:]
+    traza_actual["numero_ejecucion"] = (
+        numero_ejecucion
+    )
+    return traza_actual
+
+
+def _tabla_activa(
+    dataset_activo,
+    tabla_original,
+):
+    """Devuelve el conjunto de datos vigente.
+
+    Si el usuario cargó un CSV válido, el store ``etl-dataset-activo``
+    contiene la tabla serializada; en caso contrario se usa la tabla base
+    cargada al arrancar la aplicación. Así, cualquier fallo en la carga
+    conserva el conjunto de datos incluido sin interrumpir el dashboard.
+    """
+
+    if not dataset_activo:
+        return tabla_original
+
+    try:
+        tabla = pd.DataFrame(
+            dataset_activo
+        )
+    except (ValueError, TypeError):
+        return tabla_original
+
+    if tabla.empty:
+        return tabla_original
+
+    for columna in (
+        "es_quirurgico",
+        "coordenada_valida",
+        "geocodificado",
+    ):
+        if columna in tabla.columns:
+            tabla[columna] = (
+                tabla[columna]
+                .fillna(False)
+                .astype(bool)
+            )
+
+    return tabla
+
+
 def _respuesta_descarga(
     tabla,
     tipo,
@@ -239,26 +400,6 @@ def registrar_callbacks(
         Resultado completo de
         ``cargar_oferta_con_coordenadas()``.
     """
-
-    resumen_fuente = resumen_general(
-        tabla_original
-    )
-
-    total_sedes_registradas = (
-        resumen_fuente[
-            "sedes_totales"
-        ]
-    )
-
-    total_sedes_oferta = (
-        resumen_fuente[
-            "sedes_con_oferta_quirurgica"
-        ]
-    )
-
-    opciones_asistente = obtener_opciones_filtros(
-        tabla_original
-    )
 
     @app.callback(
         Output(
@@ -328,19 +469,43 @@ def registrar_callbacks(
             "filtro-texto-sede",
             "value",
         ),
+        Input(
+            "etl-dataset-activo",
+            "data",
+        ),
     )
     def actualizar_dashboard(
         servicios,
         naturalezas,
         tipos_prestador,
         texto_sede,
+        dataset_activo,
     ):
-        """Actualiza el dashboard cuando cambia algún filtro."""
+        """Actualiza el dashboard cuando cambia un filtro o el dataset."""
+
+        tabla_base = _tabla_activa(
+            dataset_activo,
+            tabla_original,
+        )
+
+        resumen_base = resumen_general(
+            tabla_base
+        )
+
+        total_sedes_registradas_actual = (
+            resumen_base["sedes_totales"]
+        )
+
+        total_sedes_oferta_actual = (
+            resumen_base[
+                "sedes_con_oferta_quirurgica"
+            ]
+        )
 
         tabla_filtrada = (
             _aplicar_filtros_actuales(
                 tabla_original=(
-                    tabla_original
+                    tabla_base
                 ),
                 servicios=servicios,
                 naturalezas=naturalezas,
@@ -385,7 +550,7 @@ def registrar_callbacks(
                     tabla_filtrada
                 ),
                 total_sedes_fuente=(
-                    total_sedes_oferta
+                    total_sedes_oferta_actual
                 ),
                 servicios=servicios,
                 naturalezas=naturalezas,
@@ -398,7 +563,7 @@ def registrar_callbacks(
 
         return (
             _formatear_numero(
-                total_sedes_registradas
+                total_sedes_registradas_actual
             ),
             _formatear_numero(
                 resumen_filtrado[
@@ -441,6 +606,362 @@ def registrar_callbacks(
                 tabla_por_naturaleza
             ),
             estado,
+        )
+
+    @app.callback(
+        Output(
+            "etl-dataset-activo",
+            "data",
+        ),
+        Output(
+            "etl-traza",
+            "data",
+        ),
+        Output(
+            "etl-tabla-historico",
+            "data",
+        ),
+        Output(
+            "etl-tabla-mapeo",
+            "data",
+        ),
+        Output(
+            "etl-panel-errores",
+            "children",
+        ),
+        Output(
+            "etl-panel-errores",
+            "className",
+        ),
+        Output(
+            "etl-estado",
+            "children",
+        ),
+        Output(
+            "filtro-servicio",
+            "options",
+        ),
+        Output(
+            "filtro-naturaleza",
+            "options",
+        ),
+        Output(
+            "filtro-tipo-prestador",
+            "options",
+        ),
+        Output(
+            "filtro-servicio",
+            "value",
+            allow_duplicate=True,
+        ),
+        Output(
+            "filtro-naturaleza",
+            "value",
+            allow_duplicate=True,
+        ),
+        Output(
+            "filtro-tipo-prestador",
+            "value",
+            allow_duplicate=True,
+        ),
+        Output(
+            "filtro-texto-sede",
+            "value",
+            allow_duplicate=True,
+        ),
+        Input(
+            "etl-carga-csv",
+            "contents",
+        ),
+        State(
+            "etl-carga-csv",
+            "filename",
+        ),
+        State(
+            "etl-traza",
+            "data",
+        ),
+        prevent_initial_call=True,
+    )
+    def cargar_csv_etl(
+        contenido,
+        nombre_archivo,
+        traza_anterior,
+    ):
+        """Ejecuta el ETL con el CSV cargado y actualiza la observabilidad.
+
+        Si el ETL es válido, escribe la tabla en ``etl-dataset-activo``,
+        lo que desencadena la actualización en vivo de los indicadores,
+        el mapa y las tablas. Si falla, conserva el dataset vigente y
+        muestra los errores sin interrumpir el dashboard.
+        """
+
+        if not contenido:
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        if (
+            not nombre_archivo
+            or not nombre_archivo.lower().endswith(
+                ".csv"
+            )
+        ):
+            error = (
+                "Selecciona un archivo con "
+                "extensión .csv."
+            )
+            traza_error = _traza_error_carga(
+                nombre_archivo,
+                error,
+            )
+            traza_error = _combinar_historial_etl(
+                traza_error,
+                traza_anterior,
+            )
+            return (
+                no_update,
+                traza_error,
+                [],
+                [],
+                [_tarjeta_error("Carga", error)],
+                "etl-errores",
+                (
+                    "Tipo de archivo no válido. "
+                    "Se mantiene el conjunto de "
+                    "datos vigente."
+                ),
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        if len(contenido) > (
+            (TAMANO_MAXIMO_CSV_ETL * 4 // 3)
+            + 8192
+        ):
+            error = (
+                "El archivo supera el límite "
+                "de 10 MB."
+            )
+            traza_error = _traza_error_carga(
+                nombre_archivo,
+                error,
+            )
+            traza_error = _combinar_historial_etl(
+                traza_error,
+                traza_anterior,
+            )
+            return (
+                no_update,
+                traza_error,
+                [],
+                [],
+                [_tarjeta_error("Carga", error)],
+                "etl-errores",
+                (
+                    "El archivo es demasiado "
+                    "grande. Se mantiene el "
+                    "conjunto de datos vigente."
+                ),
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        try:
+            _, cadena_contenido = (
+                contenido.split(",", 1)
+            )
+            datos = base64.b64decode(
+                cadena_contenido,
+                validate=True,
+            )
+        except (ValueError, TypeError):
+            error = (
+                "No fue posible decodificar "
+                "el archivo cargado."
+            )
+            traza_error = _traza_error_carga(
+                nombre_archivo,
+                error,
+            )
+            traza_error = _combinar_historial_etl(
+                traza_error,
+                traza_anterior,
+            )
+            errores = [
+                _tarjeta_error(
+                    "Carga",
+                    error,
+                )
+            ]
+
+            return (
+                no_update,
+                traza_error,
+                [],
+                [],
+                errores,
+                "etl-errores",
+                (
+                    "No se pudo leer el archivo "
+                    "cargado. Se mantiene el "
+                    "conjunto de datos vigente."
+                ),
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        if len(datos) > TAMANO_MAXIMO_CSV_ETL:
+            error = (
+                "El archivo supera el límite "
+                "de 10 MB."
+            )
+            traza_error = _traza_error_carga(
+                nombre_archivo,
+                error,
+            )
+            traza_error = _combinar_historial_etl(
+                traza_error,
+                traza_anterior,
+            )
+            return (
+                no_update,
+                traza_error,
+                [],
+                [],
+                [_tarjeta_error("Carga", error)],
+                "etl-errores",
+                (
+                    "El archivo es demasiado "
+                    "grande. Se mantiene el "
+                    "conjunto de datos vigente."
+                ),
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        resultado = ejecutar_etl(
+            origen=datos,
+            nombre_fuente=(
+                nombre_archivo
+                or "archivo cargado"
+            ),
+        )
+
+        traza_dict = (
+            resultado.como_dict_traza()
+        )
+        traza_dict = _combinar_historial_etl(
+            traza_dict,
+            traza_anterior,
+        )
+
+        historico = traza_dict["historial"]
+        mapeo = traza_dict["mapeos"]
+
+        if not resultado.exito:
+            errores = [
+                _tarjeta_error(
+                    error["paso"],
+                    error["mensaje"],
+                )
+                for error in traza_dict[
+                    "errores"
+                ]
+            ]
+
+            estado = (
+                "El ETL de "
+                f"'{resultado.nombre_fuente}' "
+                "falló. Se mantiene el conjunto "
+                "de datos vigente."
+            )
+
+            return (
+                no_update,
+                traza_dict,
+                historico,
+                mapeo,
+                errores,
+                "etl-errores",
+                estado,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        opciones = obtener_opciones_filtros(
+            resultado.tabla
+        )
+
+        resumen_nuevo = resumen_general(
+            resultado.tabla
+        )
+
+        estado = (
+            "Conjunto de datos activo: "
+            f"'{resultado.nombre_fuente}' "
+            f"({len(resultado.tabla)} registros, "
+            f"{resumen_nuevo['sedes_con_oferta_quirurgica']} "
+            "sedes con oferta quirúrgica). "
+            "Huella SHA-256: "
+            f"{resultado.huella_sha256[:12]}…"
+        )
+
+        return (
+            resultado.tabla.to_dict(
+                "records"
+            ),
+            traza_dict,
+            historico,
+            mapeo,
+            [],
+            "etl-errores etl-oculto",
+            estado,
+            opciones["servicios"],
+            opciones["naturalezas"],
+            opciones["tipos_prestador"],
+            [],
+            [],
+            [],
+            "",
         )
 
     @app.callback(
@@ -503,6 +1024,10 @@ def registrar_callbacks(
             "filtro-texto-sede",
             "value",
         ),
+        State(
+            "etl-dataset-activo",
+            "data",
+        ),
         prevent_initial_call=True,
     )
     def descargar_detalle(
@@ -511,13 +1036,17 @@ def registrar_callbacks(
         naturalezas,
         tipos_prestador,
         texto_sede,
+        dataset_activo,
     ):
         """Descarga el detalle correspondiente a los filtros activos."""
 
         tabla_filtrada = (
             _aplicar_filtros_actuales(
                 tabla_original=(
-                    tabla_original
+                    _tabla_activa(
+                        dataset_activo,
+                        tabla_original,
+                    )
                 ),
                 servicios=servicios,
                 naturalezas=naturalezas,
@@ -564,6 +1093,14 @@ def registrar_callbacks(
             "filtro-texto-sede",
             "value",
         ),
+        State(
+            "etl-dataset-activo",
+            "data",
+        ),
+        State(
+            "etl-traza",
+            "data",
+        ),
         prevent_initial_call=True,
     )
     def descargar_resumen_servicio(
@@ -572,13 +1109,18 @@ def registrar_callbacks(
         naturalezas,
         tipos_prestador,
         texto_sede,
+        dataset_activo,
+        traza_etl,
     ):
         """Descarga el resumen por servicio de los datos filtrados."""
 
         tabla_filtrada = (
             _aplicar_filtros_actuales(
                 tabla_original=(
-                    tabla_original
+                    _tabla_activa(
+                        dataset_activo,
+                        tabla_original,
+                    )
                 ),
                 servicios=servicios,
                 naturalezas=naturalezas,
@@ -623,6 +1165,10 @@ def registrar_callbacks(
             "filtro-texto-sede",
             "value",
         ),
+        State(
+            "etl-dataset-activo",
+            "data",
+        ),
         prevent_initial_call=True,
     )
     def descargar_resumen_naturaleza(
@@ -631,13 +1177,17 @@ def registrar_callbacks(
         naturalezas,
         tipos_prestador,
         texto_sede,
+        dataset_activo,
     ):
         """Descarga el resumen por naturaleza de los datos filtrados."""
 
         tabla_filtrada = (
             _aplicar_filtros_actuales(
                 tabla_original=(
-                    tabla_original
+                    _tabla_activa(
+                        dataset_activo,
+                        tabla_original,
+                    )
                 ),
                 servicios=servicios,
                 naturalezas=naturalezas,
@@ -684,6 +1234,14 @@ def registrar_callbacks(
             "filtro-texto-sede",
             "value",
         ),
+        State(
+            "etl-dataset-activo",
+            "data",
+        ),
+        State(
+            "etl-traza",
+            "data",
+        ),
         prevent_initial_call=True,
     )
     def descargar_metadata(
@@ -692,13 +1250,18 @@ def registrar_callbacks(
         naturalezas,
         tipos_prestador,
         texto_sede,
+        dataset_activo,
+        traza_etl,
     ):
         """Descarga la metadata y cobertura del resultado actual."""
 
         tabla_filtrada = (
             _aplicar_filtros_actuales(
                 tabla_original=(
-                    tabla_original
+                    _tabla_activa(
+                        dataset_activo,
+                        tabla_original,
+                    )
                 ),
                 servicios=servicios,
                 naturalezas=naturalezas,
@@ -714,6 +1277,37 @@ def registrar_callbacks(
                 tabla_filtrada
             )
         )
+        if traza_etl:
+            filas_etl = pd.DataFrame(
+                [
+                    {
+                        "campo": (
+                            "etl_nombre_fuente"
+                        ),
+                        "valor": traza_etl.get(
+                            "nombre_fuente",
+                            "",
+                        ),
+                    },
+                    {
+                        "campo": (
+                            "etl_huella_sha256"
+                        ),
+                        "valor": traza_etl.get(
+                            "huella_sha256",
+                            "",
+                        )
+                        or "",
+                    },
+                ]
+            )
+            metadata_exportable = pd.concat(
+                [
+                    metadata_exportable,
+                    filas_etl,
+                ],
+                ignore_index=True,
+            )
 
         return _respuesta_descarga(
             tabla=metadata_exportable,
@@ -782,6 +1376,10 @@ def registrar_callbacks(
             "filtro-texto-sede",
             "value",
         ),
+        State(
+            "etl-dataset-activo",
+            "data",
+        ),
         prevent_initial_call=True,
     )
     def ejecutar_asistente(
@@ -791,12 +1389,23 @@ def registrar_callbacks(
         naturalezas_actuales,
         tipos_actuales,
         texto_actual,
+        dataset_activo,
     ):
         """Interpreta una solicitud y aplica únicamente acciones permitidas."""
 
+        tabla_base = _tabla_activa(
+            dataset_activo,
+            tabla_original,
+        )
+        opciones_asistente_actuales = (
+            obtener_opciones_filtros(
+                tabla_base
+            )
+        )
+
         try:
             sede_mencionada = buscar_sede_mencionada(
-                tabla_original,
+                tabla_base,
                 solicitud,
             )
             descarga_detalle = solicita_descarga_detalle(
@@ -824,7 +1433,7 @@ def registrar_callbacks(
             else:
                 comando = interpretar_solicitud(
                     solicitud,
-                    opciones_asistente,
+                    opciones_asistente_actuales,
                 )
         except ErrorAsistente as error:
             mensaje = str(error)
@@ -886,7 +1495,7 @@ def registrar_callbacks(
         consulta_sede = comando["focus_sede"]
         if consulta_sede:
             sede_enfocada, error_busqueda = buscar_sede_unica(
-                tabla_original,
+                tabla_base,
                 consulta_sede,
             )
             if error_busqueda:
@@ -902,7 +1511,7 @@ def registrar_callbacks(
                 )
 
             coincidencias_filtradas = aplicar_filtros(
-                tabla_original,
+                tabla_base,
                 servicios=nuevos_servicios,
                 naturalezas=nuevas_naturalezas,
                 tipos_prestador=nuevos_tipos,
@@ -982,7 +1591,7 @@ def registrar_callbacks(
         descarga = no_update
         if comando["download_detail"]:
             tabla_filtrada = _aplicar_filtros_actuales(
-                tabla_original=tabla_original,
+                tabla_original=tabla_base,
                 servicios=nuevos_servicios,
                 naturalezas=nuevas_naturalezas,
                 tipos_prestador=nuevos_tipos,

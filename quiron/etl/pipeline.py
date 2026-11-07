@@ -20,7 +20,9 @@ from dataclasses import dataclass
 import pandas as pd
 
 from quiron.data.loader import (
+    ARCHIVO_CIRUGIA_PLASTICA,
     CODIGOS_QUIRURGICOS,
+    cargar_cirugia_plastica,
     cargar_oferta_con_coordenadas,
 )
 from quiron.etl.observabilidad import (
@@ -73,7 +75,6 @@ def _calcular_huella(contenido):
 
 def _normalizar_a_bytes(
     origen,
-    traza,
 ):
     """Obtiene el contenido en bytes de la fuente para el ETL.
 
@@ -118,6 +119,7 @@ def _normalizar_a_bytes(
 def _registrar_mapeo_campos(
     tabla,
     traza,
+    incluir_geocodificacion,
 ):
     """Documenta el mapeo de campos origen → destino en la traza."""
 
@@ -171,17 +173,25 @@ def _registrar_mapeo_campos(
         filas=filas,
     )
 
+    if incluir_geocodificacion:
+        transformacion_coordenadas = (
+            "Unión segura por sede_id; el "
+            "contenido coincide con el CSV "
+            "geocodificado"
+        )
+    else:
+        transformacion_coordenadas = (
+            "No se reutilizan coordenadas: "
+            "sede_id depende del orden de filas "
+            "y el CSV cargado es diferente"
+        )
+
     traza.mapear(
-        campo_origen=(
-            "sedes_geocodificadas.csv"
-        ),
+        campo_origen="sedes_geocodificadas.csv",
         campo_destino=(
             "latitud, longitud, coordenada_valida"
         ),
-        transformacion=(
-            "Unión por sede_id con las "
-            "coordenadas pre-geocodificadas"
-        ),
+        transformacion=transformacion_coordenadas,
         filas=filas,
     )
 
@@ -216,10 +226,15 @@ def ejecutar_etl(
         nivel=NivelTraza.INFO,
     )
 
+    huella = None
+    nombre = (
+        nombre_fuente
+        or "archivo cargado"
+    )
+
     try:
         contenido, nombre = _normalizar_a_bytes(
             origen,
-            traza,
         )
 
         if nombre_fuente:
@@ -235,10 +250,41 @@ def ejecutar_etl(
             nivel=NivelTraza.INFO,
         )
 
-        tabla = cargar_oferta_con_coordenadas(
-            origen=contenido,
-            nombre_fuente=nombre,
+        huella_incluida = _calcular_huella(
+            ARCHIVO_CIRUGIA_PLASTICA.read_bytes()
         )
+        incluir_geocodificacion = (
+            huella == huella_incluida
+        )
+
+        if incluir_geocodificacion:
+            tabla = cargar_oferta_con_coordenadas(
+                origen=contenido,
+                nombre_fuente=nombre,
+            )
+        else:
+            tabla = cargar_cirugia_plastica(
+                origen=contenido,
+                nombre_fuente=nombre,
+            )
+            tabla["direccion_normalizada"] = [
+                None
+            ] * len(tabla)
+            tabla["latitud"] = [None] * len(tabla)
+            tabla["longitud"] = [None] * len(tabla)
+            tabla["geocodificado"] = False
+            tabla["coordenada_valida"] = False
+
+            traza.registrar(
+                "Geocodificación",
+                "No se reutilizaron coordenadas del "
+                "CSV del proyecto porque el archivo "
+                "cargado tiene una huella diferente; "
+                "los identificadores dependen del "
+                "orden de filas.",
+                nivel=NivelTraza.ADVERTENCIA,
+                filas=len(tabla),
+            )
 
         traza.registrar(
             "Transformación",
@@ -251,6 +297,7 @@ def ejecutar_etl(
         _registrar_mapeo_campos(
             tabla,
             traza,
+            incluir_geocodificacion,
         )
 
         quirurgicas = tabla[
@@ -279,11 +326,6 @@ def ejecutar_etl(
         )
 
     except Exception as error:  # noqa: BLE001
-        nombre = (
-            nombre_fuente
-            or "archivo cargado"
-        )
-
         traza.registrar_error(
             "Validación",
             "El ETL no pudo completarse: "
@@ -293,7 +335,7 @@ def ejecutar_etl(
         return ResultadoETL(
             tabla=None,
             traza=traza,
-            huella_sha256=None,
+            huella_sha256=huella,
             nombre_fuente=nombre,
             exito=False,
         )

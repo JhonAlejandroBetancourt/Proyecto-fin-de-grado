@@ -1519,3 +1519,115 @@ td {
   animation: none !important;
   transform: none !important;
 }
+/* Panel de proceso ETL */
+.panel-etl {
+  margin-top: 24px;
+  padding: 24px;
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-grande);
+  box-shadow: var(--sombra);
+}
+
+.encabezado-etl {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+
+.encabezado-etl h2 {
+  margin: 0 0 5px;
+  color: var(--morado-profundo);
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.etiqueta-etl {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  color: var(--morado-profundo);
+  background: var(--morado-muy-claro);
+  border: 1px solid var(--morado-claro);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.etl-zona-carga {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 90px;
+  padding: 18px;
+  color: var(--morado-profundo);
+  text-align: center;
+  background: var(--morado-muy-claro);
+  border: 2px dashed var(--morado-claro);
+  border-radius: var(--radio-pequeno);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.etl-zona-carga:hover {
+  background: #e6dcf7;
+  border-color: var(--borde-activo);
+}
+
+.etl-icono-carga {
+  font-size: 22px;
+}
+
+.etl-estado {
+  margin-top: 14px;
+  padding: 10px 14px;
+  color: var(--morado-profundo);
+  background: var(--morado-muy-claro);
+  border-radius: var(--radio-pequeno);
+  font-size: 13px;
+}
+
+.etl-errores {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: #fdecee;
+  border: 1px solid #f3b4bc;
+  border-radius: var(--radio-pequeno);
+}
+
+.etl-error {
+  margin: 4px 0;
+  color: #b00020;
+  font-size: 13px;
+}
+
+.etl-oculto {
+  display: none;
+}
+
+.rejilla-etl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.tarjeta-etl h3 {
+  margin: 0 0 10px;
+  color: var(--morado-profundo);
+  font-size: 15px;
+}
+
+@media (max-width: 760px) {
+  .encabezado-etl {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .rejilla-etl {
+    grid-template-columns: 1fr;
+  }
+}

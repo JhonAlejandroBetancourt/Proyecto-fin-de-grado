@@ -137,6 +137,33 @@ def test_ejecutar_etl_huella_reproducible():
     assert resultado.huella_sha256 == esperada
 
 
+def test_etl_no_reutiliza_coordenadas_para_csv_diferente():
+    """Un CSV alterno no debe heredar coordenadas por índice de fila."""
+
+    contenido = (
+        ARCHIVO_CIRUGIA_PLASTICA.read_bytes()
+        + b"\n"
+    )
+
+    resultado = ejecutar_etl(
+        origen=contenido,
+        nombre_fuente="alterno.csv",
+    )
+
+    assert resultado.exito is True
+    assert resultado.tabla is not None
+    assert resultado.tabla[
+        "coordenada_valida"
+    ].eq(False).all()
+    assert resultado.tabla[
+        "latitud"
+    ].isna().all()
+    assert any(
+        paso.nivel is NivelTraza.ADVERTENCIA
+        for paso in resultado.traza.pasos
+    )
+
+
 def test_ejecutar_etl_con_bytes_en_memoria():
     """El ETL debe procesar una fuente cargada en memoria."""
 
@@ -165,7 +192,9 @@ def test_ejecutar_etl_fuente_invalida_no_rompe():
 
     assert resultado.exito is False
     assert resultado.tabla is None
-    assert resultado.huella_sha256 is None
+    assert resultado.huella_sha256 == hashlib.sha256(
+        b"columna_a;columna_b\n1;2\n"
+    ).hexdigest()
     assert resultado.traza.tiene_errores is True
 
 
@@ -195,3 +224,58 @@ def test_loader_acepta_bytes():
     assert list(desde_archivo.columns) == list(
         desde_bytes.columns
     )
+
+
+def test_resultado_como_dict_traza_incluye_metadatos():
+    """La traza serializada debe incluir huella, fuente y éxito."""
+
+    resultado = ejecutar_etl(
+        nombre_fuente="incluido.csv",
+    )
+
+    datos = resultado.como_dict_traza()
+
+    assert datos["exito"] is True
+    assert datos["nombre_fuente"] == "incluido.csv"
+    assert len(datos["huella_sha256"]) == 64
+    assert "pasos" in datos
+    assert "mapeos" in datos
+
+
+def test_tabla_activa_usa_store_cuando_hay_datos():
+    """La resolución del dataset activo debe preferir el store cargado."""
+
+    from quiron.callbacks import _tabla_activa
+
+    base = cargar_cirugia_plastica()
+
+    resultado = ejecutar_etl()
+    registros = resultado.tabla.to_dict(
+        "records"
+    )
+
+    activa = _tabla_activa(
+        registros,
+        base,
+    )
+
+    assert len(activa) == len(
+        resultado.tabla
+    )
+    assert activa["es_quirurgico"].dtype == bool
+
+
+def test_tabla_activa_fallback_sin_store():
+    """Sin store, la resolución debe devolver la tabla base."""
+
+    from quiron.callbacks import _tabla_activa
+
+    base = cargar_cirugia_plastica()
+
+    activa = _tabla_activa(None, base)
+
+    assert activa is base
+
+    activa_vacia = _tabla_activa([], base)
+
+    assert activa_vacia is base
