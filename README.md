@@ -33,6 +33,26 @@ dashboard conserva los datos y deja las coordenadas sin resolver; así evita
 asignar ubicaciones incorrectas, ya que el identificador de sede actual se
 deriva del orden de las filas.
 
+## Pruebas unitarias y cobertura
+
+Las pruebas unitarias cubren las capas de datos, filtros, metadata,
+exportación, asistente y normalización. Desde la raíz del proyecto:
+
+```powershell
+pip install -r requirements.txt
+pytest
+```
+
+Para medir la cobertura de código del paquete `quiron`:
+
+```powershell
+pytest --cov=quiron
+```
+
+Añade `--cov-report=html` para generar un informe navegable en `htmlcov/`
+(carpeta excluida de Git). La configuración de `pytest` y `coverage` vive en
+`pyproject.toml`.
+
 ## Asistente de voz con Gemini
 
 El asistente acepta solicitudes escritas o dictadas para aplicar los filtros
