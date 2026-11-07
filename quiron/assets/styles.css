@@ -183,6 +183,28 @@ a:focus-visible {
   font-weight: 700;
 }
 
+.acciones-autenticacion {
+  position: absolute;
+  top: 22px;
+  right: 24px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.acciones-autenticacion a {
+  padding: 7px 11px;
+  color: var(--texto-claro);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 7px;
+  text-decoration: none;
+}
+
+.acciones-autenticacion a:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 
 /* =========================================================
    PANEL DE FILTROS
@@ -1274,6 +1296,13 @@ td {
   .encabezado {
     padding: 24px 22px;
     border-radius: var(--radio);
+  }
+
+  .acciones-autenticacion {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin-top: 16px;
   }
 
   .panel-filtros,

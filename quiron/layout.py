@@ -35,37 +35,62 @@ def _formatear_numero(valor):
     )
 
 
-def _encabezado():
+def _encabezado(
+    auth_enabled=False,
+):
     """Construye el encabezado institucional."""
+
+    children = [
+        html.Span(
+            "⚕",
+            className="emblema",
+            **{
+                "aria-hidden": "true",
+            },
+        ),
+        html.H1(
+            "Quirón"
+        ),
+        html.P(
+            (
+                "Radar de oferta quirúrgica "
+                "de las IPS de Bogotá D.C."
+            ),
+            className="subtitulo",
+        ),
+        html.Span(
+            (
+                "Fundación Universitaria "
+                "Compensar"
+            ),
+            className="chip-marca",
+        ),
+    ]
+    if auth_enabled:
+        children.append(
+            html.Nav(
+                className="acciones-autenticacion",
+                **{
+                    "aria-label": (
+                        "Acciones de usuario"
+                    ),
+                },
+                children=[
+                    html.A(
+                        "Administración",
+                        href="/admin",
+                    ),
+                    html.A(
+                        "Cerrar sesión",
+                        href="/auth/logout",
+                    ),
+                ],
+            )
+        )
 
     return html.Header(
         className="encabezado",
-        children=[
-            html.Span(
-                "⚕",
-                className="emblema",
-                **{
-                    "aria-hidden": "true",
-                },
-            ),
-            html.H1(
-                "Quirón"
-            ),
-            html.P(
-                (
-                    "Radar de oferta quirúrgica "
-                    "de las IPS de Bogotá D.C."
-                ),
-                className="subtitulo",
-            ),
-            html.Span(
-                (
-                    "Fundación Universitaria "
-                    "Compensar"
-                ),
-                className="chip-marca",
-            ),
-        ],
+        children=children,
     )
 
 
@@ -1610,13 +1635,14 @@ def build_layout(
     opciones_filtros,
     metadata,
     traza_etl=None,
+    auth_enabled=False,
 ):
     """Construye la interfaz completa del dashboard."""
 
     return html.Div(
         className="lienzo",
         children=[
-            _encabezado(),
+            _encabezado(auth_enabled),
             html.Main(
                 children=[
                     _panel_trazabilidad(

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="supabase-url" content="{{ supabase_url }}">
+  <meta name="supabase-anon-key" content="{{ supabase_anon_key }}">
+  <title>Administración de cuentas · Quirón</title>
+  <script src="/assets/auth-session.js" defer></script>
+  <style>
+    :root {
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #231942;
+      background: #f6f3fa;
+    }
+    body { max-width: 1160px; margin: 0 auto; padding: 28px 20px; }
+    header, .card {
+      padding: 22px;
+      border: 1px solid #e4def2;
+      border-radius: 14px;
+      background: #fff;
+    }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; color: #330968; }
+    a { color: #5b2b9a; }
+    .card { margin-top: 20px; }
+    form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+    label { display: grid; gap: 6px; flex: 1; min-width: 220px; font-weight: 600; }
+    input {
+      min-height: 42px;
+      padding: 8px 10px;
+      border: 1px solid #c9bfd9;
+      border-radius: 7px;
+      font: inherit;
+    }
+    button {
+      min-height: 42px;
+      padding: 8px 14px;
+      border: 0;
+      border-radius: 7px;
+      color: #fff;
+      background: #5b2b9a;
+      cursor: pointer;
+      font: inherit;
+    }
+    button.secondary { color: #330968; background: #eee8f7; }
+    button.danger { background: #a32626; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; margin-top: 14px; border-collapse: collapse; }
+    th, td { padding: 11px 9px; border-bottom: 1px solid #e4def2; text-align: left; }
+    th { color: #330968; }
+    td.actions { white-space: nowrap; }
+    td.actions button { margin: 3px; }
+    #mensaje { min-height: 1.5em; }
+    [aria-busy="true"] { opacity: .7; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Administración de cuentas</h1>
+      <p>Invita usuarios y consulta su último acceso.</p>
+    </div>
+    <nav aria-label="Navegación">
+      <a href="/">Dashboard</a>
+      ·
+      <a href="/auth/logout">Cerrar sesión</a>
+    </nav>
+  </header>
+  <section class="card" aria-labelledby="invitar-titulo">
+    <h2 id="invitar-titulo">Crear usuario</h2>
+    <p>Se enviará una invitación para que la persona establezca su contraseña y configure MFA.</p>
+    <form id="invite-form">
+      <label for="invite-email">Correo del usuario
+        <input id="invite-email" name="email" type="email" autocomplete="email" required>
+      </label>
+      <button id="invite-button" type="submit">Enviar invitación</button>
+    </form>
+  </section>
+  <section class="card" aria-labelledby="usuarios-titulo" aria-busy="true">
+    <h2 id="usuarios-titulo">Usuarios</h2>
+    <p id="mensaje" role="status" aria-live="polite"></p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Correo</th>
+            <th>Rol</th>
+            <th>Creación</th>
+            <th>Último inicio de sesión</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="users-body"></tbody>
+      </table>
+    </div>
+  </section>
+  <script>
+    (() => {
+      const usersSection = document.querySelector(
+        '[aria-labelledby="usuarios-titulo"]'
+      );
+      const body = document.getElementById("users-body");
+      const message = document.getElementById("mensaje");
+      const showMessage = (text, error = false) => {
+        message.textContent = text || "";
+        message.style.color = error ? "#a32626" : "#1b7a3d";
+      };
+      const dateText = (value) => value
+        ? new Date(value).toLocaleString("es-CO", { timeZone: "UTC" })
+        : "Nunca";
+      const api = async (path, options = {}) => {
+        const response = await fetch(path, {
+          credentials: "same-origin",
+          ...options,
+          headers: {
+            "Content-Type": "application/json",
+            ...(options.headers || {})
+          }
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(result.error || "La operación no pudo completarse.");
+        }
+        return result;
+      };
+      const loadUsers = async () => {
+        usersSection.setAttribute("aria-busy", "true");
+        try {
+          const result = await api("/auth/admin/users");
+          body.replaceChildren();
+          for (const user of result.users || []) {
+            const row = document.createElement("tr");
+            for (const value of [
+              user.email || "",
+              user.role || "user",
+              dateText(user.created_at),
+              dateText(user.last_sign_in_at)
+            ]) {
+              const cell = document.createElement("td");
+              cell.textContent = value;
+              row.appendChild(cell);
+            }
+            const actions = document.createElement("td");
+            actions.className = "actions";
+            const reset = document.createElement("button");
+            reset.type = "button";
+            reset.className = "secondary";
+            reset.textContent = "Restablecer contraseña";
+            reset.addEventListener("click", async () => {
+              reset.disabled = true;
+              try {
+                const result = await api(
+                  `/auth/admin/users/${encodeURIComponent(user.id)}/reset-password`,
+                  { method: "POST", body: "{}" }
+                );
+                showMessage(result.message);
+              } catch (error) {
+                showMessage(error.message, true);
+              } finally {
+                reset.disabled = false;
+              }
+            });
+            actions.appendChild(reset);
+            if (user.role !== "admin") {
+              const remove = document.createElement("button");
+              remove.type = "button";
+              remove.className = "danger";
+              remove.textContent = "Eliminar";
+              remove.addEventListener("click", async () => {
+                if (!confirm(`¿Eliminar la cuenta ${user.email}?`)) return;
+                remove.disabled = true;
+                try {
+                  const result = await api(
+                    `/auth/admin/users/${encodeURIComponent(user.id)}`,
+                    { method: "DELETE" }
+                  );
+                  showMessage(result.message);
+                  await loadUsers();
+                } catch (error) {
+                  showMessage(error.message, true);
+                  remove.disabled = false;
+                }
+              });
+              actions.appendChild(remove);
+            }
+            row.appendChild(actions);
+            body.appendChild(row);
+          }
+        } catch (error) {
+          showMessage(error.message, true);
+        } finally {
+          usersSection.setAttribute("aria-busy", "false");
+        }
+      };
+
+      document.getElementById("invite-form").addEventListener(
+        "submit",
+        async (event) => {
+          event.preventDefault();
+          const button = document.getElementById("invite-button");
+          button.disabled = true;
+          try {
+            const result = await api("/auth/admin/users", {
+              method: "POST",
+              body: JSON.stringify({
+                email: document.getElementById("invite-email").value.trim()
+              })
+            });
+            showMessage(result.message);
+            event.target.reset();
+            await loadUsers();
+          } catch (error) {
+            showMessage(error.message, true);
+          } finally {
+            button.disabled = false;
+          }
+        }
+      );
+      loadUsers();
+    })();
+  </script>
+</body>
+</html>

@@ -16,10 +16,14 @@ Los callbacks reutilizan la tabla en memoria y no vuelven a leer los
 archivos CSV en cada interacción del usuario.
 """
 
+from html import escape
 from pathlib import Path
 
 import dash
 
+from quiron.auth import (
+    register_auth,
+)
 from quiron.callbacks import (
     registrar_callbacks,
 )
@@ -248,6 +252,28 @@ def create_app():
     )
 
     app = _crear_aplicacion_dash()
+    register_auth(
+        app.server
+    )
+    auth_config = app.server.extensions.get(
+        "quiron_auth_public_config"
+    )
+    if auth_config:
+        auth_meta = (
+            '<meta name="supabase-url" content="'
+            f'{escape(auth_config["supabase_url"], quote=True)}">'
+            '<meta name="supabase-anon-key" content="'
+            f'{escape(auth_config["anon_key"], quote=True)}">'
+        )
+        if "{%metas%}" not in app.index_string:
+            raise RuntimeError(
+                "La plantilla de Dash no permite inyectar "
+                "la configuración pública de autenticación."
+            )
+        app.index_string = app.index_string.replace(
+            "{%metas%}",
+            "{%metas%}" + auth_meta,
+        )
     app.server.config["MAX_CONTENT_LENGTH"] = (
         16 * 1024 * 1024
     )
@@ -288,6 +314,9 @@ def create_app():
         traza_etl=(
             resultado_etl.como_dict_traza()
         ),
+        auth_enabled=app.server.config[
+            "QUIRON_AUTH_ENABLED"
+        ],
     )
 
     registrar_callbacks(

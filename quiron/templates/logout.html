@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cerrar sesión · Quirón</title>
+  <style>
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      box-sizing: border-box;
+      color: #231942;
+      background: #f6f3fa;
+      font: 16px "Segoe UI", Arial, sans-serif;
+    }
+    main {
+      width: min(100%, 400px);
+      padding: 32px;
+      border: 1px solid #e4def2;
+      border-radius: 16px;
+      background: #fff;
+      text-align: center;
+    }
+    button {
+      min-height: 44px;
+      padding: 10px 18px;
+      border: 0;
+      border-radius: 8px;
+      color: #fff;
+      background: #5b2b9a;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 600;
+    }
+    #mensaje { color: #a32626; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Cerrar sesión</h1>
+    <p>¿Quieres cerrar tu sesión de Quirón?</p>
+    <button id="logout" type="button">Cerrar sesión</button>
+    <p><a href="/">Volver al dashboard</a></p>
+    <p id="mensaje" role="status" aria-live="polite"></p>
+  </main>
+  <script
+    src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"
+    integrity="sha256-qGftvPsCk3Cu7HIj3WGAtWC2IfvjvGTGWE+wNp0be84="
+    crossorigin="anonymous"></script>
+  <script>
+    document.getElementById("logout").addEventListener("click", async () => {
+      const button = document.getElementById("logout");
+      const message = document.getElementById("mensaje");
+      button.disabled = true;
+      try {
+        if (!window.supabase?.createClient) {
+          throw new Error("No se pudo cargar el servicio de autenticación.");
+        }
+        const auth = window.supabase.createClient(
+          {{ supabase_url|tojson }},
+          {{ supabase_anon_key|tojson }},
+          {
+            auth: {
+              flowType: "pkce",
+              persistSession: true,
+              storage: window.sessionStorage,
+              autoRefreshToken: false
+            }
+          }
+        );
+        const { error } = await auth.auth.signOut();
+        if (error) throw error;
+        const response = await fetch("/auth/logout", {
+          method: "POST",
+          credentials: "same-origin"
+        });
+        if (!response.ok) throw new Error("No fue posible cerrar la sesión.");
+        location.replace("/login");
+      } catch (error) {
+        message.textContent = error.message || "No fue posible cerrar la sesión.";
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

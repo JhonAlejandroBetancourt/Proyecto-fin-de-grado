@@ -33,6 +33,54 @@ huella binaria completa del archivo. Así, volver a guardar o reordenar un CSV
 no elimina coordenadas válidas, y las sedes ambiguas o sin coincidencia se
 mantienen sin ubicación para evitar asignaciones incorrectas.
 
+## Acceso de usuarios y administración
+
+La aplicación integra Supabase Auth para correo/contraseña, MFA TOTP y SSO
+con Google. Las rutas Dash, sus callbacks y el panel `/admin` quedan
+protegidos cuando la autenticación está activada. La sesión de aplicación se
+mantiene en una cookie `HttpOnly`, `SameSite=Lax` y, bajo HTTPS, `Secure`;
+los JWT se validan con las claves públicas JWKS de Supabase. Se requiere MFA
+de nivel `aal2` para todas las cuentas. El navegador mantiene la sesión de
+Supabase en el almacenamiento de la pestaña y renueva la cookie `HttpOnly`
+al refrescarse el token; al volver a una pestaña con la cookie vencida,
+intenta renovar la sesión antes de cargar el dashboard.
+
+Para desarrollo local, copia `.env.example` a `.env` y deja
+`QUIRON_AUTH_ENABLED=0`. En Vercel, la autenticación se activa por defecto y
+la aplicación falla al arrancar si falta su configuración; no publiques la
+rama de autenticación hasta cargar estas variables en las opciones de
+entorno de Vercel:
+
+- `SUPABASE_URL` y `SUPABASE_ANON_KEY` del proyecto.
+- `SUPABASE_SERVICE_ROLE_KEY`, solo del lado servidor; nunca la expongas al
+  navegador ni la guardes en el repositorio.
+- `QUIRON_BASE_URL`, el origen público exacto, por ejemplo
+  `https://tu-dominio.vercel.app`.
+- `QUIRON_ADMIN_EMAILS`, lista separada por comas con las cuentas
+  administradoras iniciales.
+- `QUIRON_GOOGLE_ALLOWED_EMAILS`, lista de correos autorizados para Google.
+  Déjala vacía para desactivar ese botón.
+
+En Supabase configura Google como proveedor, registra la URL de Quirón en
+las redirecciones permitidas, desactiva el registro público y crea o invita
+solamente cuentas autorizadas. Crea primero la cuenta administradora inicial
+en Supabase e incluye su correo tanto en `QUIRON_ADMIN_EMAILS` como en
+`QUIRON_GOOGLE_ALLOWED_EMAILS` si usará Google. Las cuentas invitadas desde
+`/admin` reciben un enlace para establecer su contraseña y deben registrar
+una aplicación TOTP en su primer acceso. Una cuenta Google también debe estar
+autorizada por correo; el rol de administrador inicial se toma de
+`QUIRON_ADMIN_EMAILS`.
+
+El panel `/admin` permite invitar usuarios, ver el último inicio de sesión,
+enviar enlaces de restablecimiento de contraseña y eliminar cuentas no
+administradoras. La clave `SUPABASE_SERVICE_ROLE_KEY` se utiliza únicamente
+para operaciones administrativas y no debe compartirse por chat, incluirse
+en capturas o enviarse al navegador. Configura todos los valores en Vercel
+antes de integrar la rama en `main`. El navegador usa el cliente oficial
+Supabase JS, fijado a una versión e integrity hash; la cookie de acceso es
+`HttpOnly`, y el SDK conserva la sesión de renovación solo en el
+`sessionStorage` de esa pestaña.
+
 ## Pruebas unitarias y cobertura
 
 Las pruebas unitarias cubren las capas de datos, filtros, metadata,

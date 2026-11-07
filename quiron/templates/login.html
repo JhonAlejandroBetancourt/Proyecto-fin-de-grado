@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Iniciar sesión · Quirón</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #231942;
+      background: #f6f3fa;
+    }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    main {
+      width: min(100%, 440px);
+      padding: 36px;
+      border: 1px solid #e4def2;
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 16px 42px rgb(51 9 104 / 10%);
+      box-sizing: border-box;
+    }
+    h1 { margin: 0 0 8px; color: #330968; }
+    p { line-height: 1.5; }
+    label { display: block; margin: 16px 0 6px; font-weight: 600; }
+    input {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid #c9bfd9;
+      border-radius: 8px;
+      box-sizing: border-box;
+      font: inherit;
+    }
+    button {
+      width: 100%;
+      min-height: 44px;
+      margin-top: 16px;
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 8px;
+      color: #fff;
+      background: #5b2b9a;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 600;
+    }
+    button.secondary { color: #330968; background: #eee8f7; }
+    button:disabled { opacity: .6; cursor: wait; }
+    [hidden] { display: none !important; }
+    #mensaje { min-height: 1.5em; color: #a32626; }
+    #mfa-qr { display: block; max-width: 220px; margin: 16px auto; }
+    #mfa-secret {
+      padding: 12px;
+      overflow-wrap: anywhere;
+      border-radius: 8px;
+      background: #f6f3fa;
+      font-family: monospace;
+    }
+    .enlace { display: block; margin-top: 14px; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Quirón</h1>
+    <p>Inicia sesión con tu cuenta autorizada. Todas las cuentas deben completar verificación MFA.</p>
+    <form id="login-form">
+      <label for="email">Correo</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="password">Contraseña</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button id="login-button" type="submit">Iniciar sesión</button>
+    </form>
+    {% if google_enabled %}
+    <button id="google-button" class="secondary" type="button">Continuar con Google</button>
+    {% endif %}
+    <button id="reset-request" class="secondary" type="button">Restablecer contraseña</button>
+    <section id="mfa-panel" hidden aria-live="polite">
+      <h2 id="mfa-title">Verificación MFA</h2>
+      <p id="mfa-instructions">Ingresa el código de tu aplicación autenticadora.</p>
+      <img id="mfa-qr" alt="Código QR de configuración MFA" hidden>
+      <p id="mfa-secret-label" hidden>Si no puedes escanear el código, registra esta clave:</p>
+      <code id="mfa-secret" hidden></code>
+      <form id="mfa-form">
+        <label for="mfa-code">Código de seis dígitos</label>
+        <input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+        <button id="mfa-button" type="submit">Verificar y continuar</button>
+      </form>
+    </section>
+    <section id="recovery-panel" hidden>
+      <h2>Crear contraseña nueva</h2>
+      <form id="recovery-form">
+        <label for="new-password">Nueva contraseña</label>
+        <input id="new-password" type="password" autocomplete="new-password" minlength="12" required>
+        <button type="submit">Actualizar contraseña</button>
+      </form>
+    </section>
+    <p id="mensaje" role="status" aria-live="polite"></p>
+  </main>
+  <script
+    src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"
+    integrity="sha256-qGftvPsCk3Cu7HIj3WGAtWC2IfvjvGTGWE+wNp0be84="
+    crossorigin="anonymous"></script>
+  <script>
+    (() => {
+      const message = document.getElementById("mensaje");
+      const loginForm = document.getElementById("login-form");
+      const mfaPanel = document.getElementById("mfa-panel");
+      const mfaForm = document.getElementById("mfa-form");
+      const recoveryPanel = document.getElementById("recovery-panel");
+      const recoveryForm = document.getElementById("recovery-form");
+      let factorId = "";
+      let challengeId = "";
+      let handledAccessToken = "";
+      const callbackType =
+        new URLSearchParams(location.hash.slice(1)).get("type") ||
+        new URLSearchParams(location.search).get("type");
+      let passwordSetupInProgress =
+        callbackType === "recovery" || callbackType === "invite";
+
+      const showMessage = (text, isError = true) => {
+        message.textContent = text || "";
+        message.style.color = isError ? "#a32626" : "#1b7a3d";
+      };
+      if (!window.supabase?.createClient) {
+        showMessage("No se pudo cargar el servicio de autenticación. Recarga la página o contacta al administrador.");
+        return;
+      }
+
+      const auth = window.supabase.createClient(
+        {{ supabase_url|tojson }},
+        {{ supabase_anon_key|tojson }},
+        {
+          auth: {
+            flowType: "pkce",
+            persistSession: true,
+            storage: window.sessionStorage,
+            autoRefreshToken: true,
+            detectSessionInUrl: true
+          }
+        }
+      );
+
+      const nextPath = () => {
+        const value = new URLSearchParams(location.search).get("next") || "/";
+        try {
+          const target = new URL(value, location.origin);
+          return target.origin === location.origin
+            ? `${target.pathname}${target.search}${target.hash}`
+            : "/";
+        } catch {
+          return "/";
+        }
+      };
+
+      async function saveApplicationSession(session, redirectAfter = true) {
+        if (!session?.access_token) {
+          showMessage("El proveedor no devolvió una sesión válida.");
+          return;
+        }
+        const response = await fetch("/auth/session", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: session.access_token })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (response.status === 403) {
+            try {
+              const { error } = await auth.auth.signOut();
+              if (error) throw error;
+            } finally {
+              await fetch("/auth/logout", {
+                method: "POST",
+                credentials: "same-origin"
+              });
+            }
+          }
+          throw new Error(result.error || "No fue posible validar la cuenta.");
+        }
+        if (redirectAfter) location.replace(nextPath());
+      }
+
+      async function showMfa(session) {
+        const { data: assurance, error: assuranceError } =
+          await auth.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (assuranceError) throw assuranceError;
+        if (assurance.currentLevel === "aal2") {
+          await saveApplicationSession(session);
+          return;
+        }
+
+        const { data: factorsData, error: factorsError } =
+          await auth.auth.mfa.listFactors();
+        if (factorsError) throw factorsError;
+        const factors =
+          factorsData?.totp ||
+          (factorsData?.all || []).filter(
+            (factor) => factor.factor_type === "totp"
+          );
+        const verified = factors.find(
+          (factor) =>
+            factor.factor_type === "totp" &&
+            factor.status === "verified"
+        );
+
+        if (verified) {
+          factorId = verified.id;
+          const { data: challenge, error: challengeError } =
+            await auth.auth.mfa.challenge({ factorId });
+          if (challengeError) throw challengeError;
+          challengeId = challenge.id;
+          document.getElementById("mfa-title").textContent =
+            "Verificación MFA";
+          document.getElementById("mfa-instructions").textContent =
+            "Ingresa el código actual de tu aplicación autenticadora.";
+        } else {
+          for (const factor of factors.filter(
+            (item) =>
+              item.factor_type === "totp" &&
+              item.status === "unverified"
+          )) {
+            const { error } = await auth.auth.mfa.unenroll({
+              factorId: factor.id
+            });
+            if (error) throw error;
+          }
+          const { data: enrollment, error: enrollmentError } =
+            await auth.auth.mfa.enroll({
+              factorType: "totp",
+              friendlyName: "Quirón"
+            });
+          if (enrollmentError) throw enrollmentError;
+          factorId = enrollment.id;
+          const qr = enrollment.totp?.qr_code || "";
+          const image = document.getElementById("mfa-qr");
+          if (qr) {
+            image.src = qr.startsWith("data:")
+              ? qr
+              : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(qr)}`;
+            image.hidden = false;
+          }
+          document.getElementById("mfa-secret").textContent =
+            enrollment.totp?.secret || "";
+          document.getElementById("mfa-secret").hidden = false;
+          document.getElementById("mfa-secret-label").hidden = false;
+          document.getElementById("mfa-title").textContent =
+            "Configura tu verificación MFA";
+          document.getElementById("mfa-instructions").textContent =
+            "Registra el código QR en una aplicación TOTP y luego ingresa el código de seis dígitos.";
+          const { data: challenge, error: challengeError } =
+            await auth.auth.mfa.challenge({ factorId });
+          if (challengeError) throw challengeError;
+          challengeId = challenge.id;
+        }
+        loginForm.hidden = true;
+        document.getElementById("google-button")?.setAttribute("hidden", "");
+        document.getElementById("reset-request").hidden = true;
+        mfaPanel.hidden = false;
+        document.getElementById("mfa-code").focus();
+      }
+
+      async function handleSession(session) {
+        if (
+          !session?.access_token ||
+          handledAccessToken === session.access_token
+        ) {
+          return;
+        }
+        handledAccessToken = session.access_token;
+        try {
+          if (passwordSetupInProgress) {
+            loginForm.hidden = true;
+            recoveryPanel.hidden = false;
+            showMessage(
+              callbackType === "invite"
+                ? "Elige una contraseña para activar tu cuenta."
+                : "Elige una contraseña nueva.",
+              false
+            );
+            return;
+          }
+          await showMfa(session);
+        } catch (error) {
+          handledAccessToken = "";
+          showMessage(error.message || "No fue posible completar la verificación.");
+        }
+      }
+
+      auth.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_IN" && session) {
+          setTimeout(() => handleSession(session), 0);
+        }
+        if (
+          event === "TOKEN_REFRESHED" &&
+          session &&
+          !passwordSetupInProgress
+        ) {
+          setTimeout(() => {
+            saveApplicationSession(session, false).catch((error) =>
+              showMessage(error.message)
+            );
+          }, 0);
+        }
+        if (event === "PASSWORD_RECOVERY") {
+          passwordSetupInProgress = true;
+          recoveryPanel.hidden = false;
+          loginForm.hidden = true;
+        }
+      });
+
+      loginForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        showMessage("");
+        const button = document.getElementById("login-button");
+        button.disabled = true;
+        try {
+          const { data, error } = await auth.auth.signInWithPassword({
+            email: document.getElementById("email").value.trim(),
+            password: document.getElementById("password").value
+          });
+          if (error) throw error;
+          await handleSession(data.session);
+        } catch (error) {
+          showMessage(error.message || "No fue posible iniciar sesión.");
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      document.getElementById("google-button")?.addEventListener(
+        "click",
+        async () => {
+          showMessage("");
+          try {
+            const { error } = await auth.auth.signInWithOAuth({
+              provider: "google",
+              options: {
+                redirectTo: `${location.origin}/login`
+              }
+            });
+            if (error) showMessage(error.message);
+          } catch (error) {
+            showMessage(error.message || "No fue posible conectar con Google.");
+          }
+        }
+      );
+
+      document.getElementById("reset-request").addEventListener(
+        "click",
+        async () => {
+          const email = document.getElementById("email").value.trim();
+          if (!email) {
+            showMessage("Escribe tu correo para recibir el enlace de recuperación.");
+            document.getElementById("email").focus();
+            return;
+          }
+          try {
+            const { error } = await auth.auth.resetPasswordForEmail(email, {
+              redirectTo: `${location.origin}/login`
+            });
+            showMessage(
+              error
+                ? error.message
+                : "Si la cuenta existe, recibirás un enlace de recuperación.",
+              Boolean(error)
+            );
+          } catch (error) {
+            showMessage(error.message || "No fue posible solicitar la recuperación.");
+          }
+        }
+      );
+
+      mfaForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const button = document.getElementById("mfa-button");
+        button.disabled = true;
+        try {
+          const { data, error } = await auth.auth.mfa.verify({
+            factorId,
+            challengeId,
+            code: document.getElementById("mfa-code").value.trim()
+          });
+          if (error) throw error;
+          const session =
+            data?.session || (await auth.auth.getSession()).data.session;
+          await saveApplicationSession(session);
+        } catch (error) {
+          showMessage(error.message || "El código MFA no es válido.");
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      recoveryForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const password = document.getElementById("new-password").value;
+        if (password.length < 12) {
+          showMessage("La contraseña debe tener al menos 12 caracteres.");
+          return;
+        }
+        try {
+          const { error } = await auth.auth.updateUser({ password });
+          if (error) throw error;
+          const { error: signOutError } = await auth.auth.signOut();
+          if (signOutError) throw signOutError;
+          const logoutResponse = await fetch("/auth/logout", {
+            method: "POST",
+            credentials: "same-origin"
+          });
+          if (!logoutResponse.ok) {
+            throw new Error(
+              "La contraseña se actualizó, pero no fue posible cerrar la sesión."
+            );
+          }
+          passwordSetupInProgress = false;
+          handledAccessToken = "";
+          recoveryPanel.hidden = true;
+          loginForm.hidden = false;
+          showMessage("Contraseña actualizada. Ya puedes iniciar sesión.", false);
+        } catch (error) {
+          showMessage(error.message || "No fue posible actualizar la contraseña.");
+        }
+      });
+
+      auth.auth.getSession().then(({ data, error }) => {
+        if (error) {
+          showMessage(error.message);
+          return;
+        }
+        if (data.session) handleSession(data.session);
+      }).catch((error) => {
+        showMessage(error.message || "No fue posible recuperar la sesión.");
+      });
+    })();
+  </script>
+</body>
+</html>
