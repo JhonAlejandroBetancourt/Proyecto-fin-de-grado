@@ -9,11 +9,38 @@ modificación del archivo porque esa marca pertenece al sistema de
 archivos y no demuestra el periodo de referencia de la fuente.
 """
 
+import hashlib
 from copy import deepcopy
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
+
+
+TAMANO_BLOQUE_LECTURA = 65536
+
+
+def _calcular_huella_sha256(ruta):
+    """Calcula la huella SHA-256 del contenido de un archivo.
+
+    La huella permite verificar la integridad del recurso fuente y dejar
+    constancia trazable de qué versión exacta del CSV se utilizó en el
+    análisis. Se lee el archivo por bloques para no cargar su contenido
+    completo en memoria.
+    """
+
+    digestor = hashlib.sha256()
+
+    with open(ruta, "rb") as archivo:
+        for bloque in iter(
+            lambda: archivo.read(
+                TAMANO_BLOQUE_LECTURA
+            ),
+            b"",
+        ):
+            digestor.update(bloque)
+
+    return digestor.hexdigest()
 
 
 NOMBRE_PROYECTO = (
@@ -362,6 +389,11 @@ def obtener_metadata(
             ),
             "tamano_bytes": int(
                 ruta.stat().st_size
+            ),
+            "huella_sha256": (
+                _calcular_huella_sha256(
+                    ruta
+                )
             ),
         }
 
