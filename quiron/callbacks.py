@@ -37,6 +37,12 @@ from quiron.etl import (
     TrazaETL,
     ejecutar_etl,
 )
+from quiron.etl.comparacion import (
+    comparar_datasets,
+)
+from quiron.layout import (
+    resumen_etl_component,
+)
 from quiron.asistente import (
     ErrorAsistente,
     buscar_sede_mencionada,
@@ -403,6 +409,45 @@ def registrar_callbacks(
 
     @app.callback(
         Output(
+            "vista-dashboard",
+            "className",
+        ),
+        Output(
+            "vista-etl",
+            "className",
+        ),
+        Output(
+            "nav-dashboard",
+            "className",
+        ),
+        Output(
+            "nav-etl",
+            "className",
+        ),
+        Input(
+            "url",
+            "pathname",
+        ),
+    )
+    def navegar_pagina(pathname):
+        """Alterna entre el dashboard y la página independiente del ETL."""
+
+        if pathname == "/etl":
+            return (
+                "pagina pagina-oculta",
+                "pagina",
+                "enlace-nav",
+                "enlace-nav enlace-nav-activo",
+            )
+        return (
+            "pagina",
+            "pagina pagina-oculta",
+            "enlace-nav enlace-nav-activo",
+            "enlace-nav",
+        )
+
+    @app.callback(
+        Output(
             "kpi-sedes-totales",
             "children",
         ),
@@ -638,6 +683,18 @@ def registrar_callbacks(
             "children",
         ),
         Output(
+            "etl-resumen",
+            "children",
+        ),
+        Output(
+            "etl-tabla-sedes-no-mapeadas",
+            "data",
+        ),
+        Output(
+            "etl-tabla-cambios",
+            "data",
+        ),
+        Output(
             "filtro-servicio",
             "options",
         ),
@@ -681,12 +738,17 @@ def registrar_callbacks(
             "etl-traza",
             "data",
         ),
+        State(
+            "etl-dataset-activo",
+            "data",
+        ),
         prevent_initial_call=True,
     )
     def cargar_csv_etl(
         contenido,
         nombre_archivo,
         traza_anterior,
+        dataset_anterior,
     ):
         """Ejecuta el ETL con el CSV cargado y actualiza la observabilidad.
 
@@ -698,6 +760,9 @@ def registrar_callbacks(
 
         if not contenido:
             return (
+                no_update,
+                no_update,
+                no_update,
                 no_update,
                 no_update,
                 no_update,
@@ -751,6 +816,9 @@ def registrar_callbacks(
                 no_update,
                 no_update,
                 no_update,
+                no_update,
+                no_update,
+                no_update,
             )
 
         if len(contenido) > (
@@ -781,6 +849,9 @@ def registrar_callbacks(
                     "grande. Se mantiene el "
                     "conjunto de datos vigente."
                 ),
+                no_update,
+                no_update,
+                no_update,
                 no_update,
                 no_update,
                 no_update,
@@ -837,6 +908,9 @@ def registrar_callbacks(
                 no_update,
                 no_update,
                 no_update,
+                no_update,
+                no_update,
+                no_update,
             )
 
         if len(datos) > TAMANO_MAXIMO_CSV_ETL:
@@ -864,6 +938,9 @@ def registrar_callbacks(
                     "grande. Se mantiene el "
                     "conjunto de datos vigente."
                 ),
+                no_update,
+                no_update,
+                no_update,
                 no_update,
                 no_update,
                 no_update,
@@ -918,6 +995,20 @@ def registrar_callbacks(
                 errores,
                 "etl-errores",
                 estado,
+                resumen_etl_component(
+                    traza_dict.get(
+                        "informe",
+                        {},
+                    )
+                ),
+                traza_dict.get(
+                    "informe",
+                    {},
+                ).get(
+                    "sedes_no_mapeadas",
+                    [],
+                ),
+                [],
                 no_update,
                 no_update,
                 no_update,
@@ -927,21 +1018,135 @@ def registrar_callbacks(
                 no_update,
             )
 
+        comparacion = comparar_datasets(
+            _tabla_activa(
+                dataset_anterior,
+                tabla_original,
+            ),
+            resultado.tabla,
+        )
+        cambios_visibles = list(
+            comparacion["cambios"]
+        )
+        cambios_visibles.extend(
+            {
+                "sede": duplicado.get(
+                    "sede",
+                    "",
+                ),
+                "campo": (
+                    "Duplicado exacto omitido"
+                ),
+                "valor_anterior": "—",
+                "valor_nuevo": (
+                    "Se conservó una copia"
+                ),
+            }
+            for duplicado in traza_dict[
+                "informe"
+            ].get(
+                "duplicados",
+                [],
+            )
+        )
+        traza_dict["cambios"] = (
+            cambios_visibles
+        )
+        traza_dict["informe"][
+            "comparacion"
+        ] = {
+            clave: valor
+            for clave, valor in comparacion.items()
+            if clave != "cambios"
+        }
+
         opciones = obtener_opciones_filtros(
             resultado.tabla
         )
 
-        resumen_nuevo = resumen_general(
-            resultado.tabla
+        resumen_etl = resumen_etl_component(
+            traza_dict["informe"],
+            comparacion,
         )
 
+        if comparacion["ambiguas"]:
+            errores = [
+                _tarjeta_error(
+                    "Comparación ambigua",
+                    (
+                        f"Se encontraron "
+                        f"{comparacion['ambiguas']} "
+                        "identidades repetidas con "
+                        "valores distintos. No se "
+                        "actualizó el conjunto activo."
+                    ),
+                )
+            ]
+            return (
+                no_update,
+                traza_dict,
+                historico,
+                mapeo,
+                errores,
+                "etl-errores",
+                (
+                    "La carga pasó el ETL, pero no se "
+                    "aplicó porque la identidad de una "
+                    "o más sedes es ambigua."
+                ),
+                resumen_etl,
+                traza_dict["informe"].get(
+                    "sedes_no_mapeadas",
+                    [],
+                ),
+                cambios_visibles,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        if comparacion["sin_diferencias"]:
+            return (
+                no_update,
+                traza_dict,
+                historico,
+                mapeo,
+                [],
+                "etl-errores etl-oculto",
+                (
+                    "No se detectaron cambios en los datos; "
+                    "el conjunto activo se conserva sin "
+                    "volver a cargarlo. "
+                    f"Huella SHA-256: "
+                    f"{resultado.huella_sha256[:12]}…"
+                ),
+                resumen_etl,
+                traza_dict["informe"].get(
+                    "sedes_no_mapeadas",
+                    [],
+                ),
+                cambios_visibles,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
         estado = (
-            "Conjunto de datos activo: "
-            f"'{resultado.nombre_fuente}' "
-            f"({len(resultado.tabla)} registros, "
-            f"{resumen_nuevo['sedes_con_oferta_quirurgica']} "
-            "sedes con oferta quirúrgica). "
-            "Huella SHA-256: "
+            "Se aplicó la carga de "
+            f"'{resultado.nombre_fuente}': "
+            f"{comparacion['actualizadas']} actualizadas, "
+            f"{comparacion['nuevas']} nuevas y "
+            f"{comparacion['retiradas']} retiradas; "
+            f"{comparacion['sin_cambios']} sin cambios. "
+            f"Huella SHA-256: "
             f"{resultado.huella_sha256[:12]}…"
         )
 
@@ -955,6 +1160,12 @@ def registrar_callbacks(
             [],
             "etl-errores etl-oculto",
             estado,
+            resumen_etl,
+            traza_dict["informe"].get(
+                "sedes_no_mapeadas",
+                [],
+            ),
+            cambios_visibles,
             opciones["servicios"],
             opciones["naturalezas"],
             opciones["tipos_prestador"],

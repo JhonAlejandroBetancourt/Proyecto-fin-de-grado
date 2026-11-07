@@ -106,6 +106,43 @@ a:focus-visible {
   line-height: 1.5;
 }
 
+.navegacion-principal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 6px;
+  background: #ffffff;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+
+.enlace-nav {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 8px 16px;
+  color: var(--texto-tenue);
+  border-radius: var(--radio-pequeno);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    color var(--transicion),
+    background var(--transicion);
+}
+
+.enlace-nav:hover,
+.enlace-nav-activo {
+  color: var(--morado-profundo);
+  background: var(--morado-muy-claro);
+}
+
+.pagina-oculta {
+  display: none;
+}
+
 
 /* =========================================================
    ENCABEZADO
@@ -1610,9 +1647,48 @@ td {
 
 .rejilla-etl {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  margin-top: 22px;
+}
+
+.etl-resumen-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
   margin-top: 18px;
+}
+
+.etl-resumen-tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 92px;
+  padding: 14px 16px;
+  background: #ffffff;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+}
+
+.etl-resumen-etiqueta {
+  color: var(--texto-tenue);
+  font-size: 12px;
+}
+
+.etl-resumen-valor {
+  color: var(--morado-profundo);
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.etl-nota-seguridad {
+  margin: 20px 0 0;
+  padding: 12px 14px;
+  color: var(--texto-tenue);
+  background: var(--lienzo);
+  border-left: 3px solid var(--morado-intermedio);
+  border-radius: 0 var(--radio-pequeno) var(--radio-pequeno) 0;
+  font-size: 13px;
 }
 
 .tarjeta-etl h3 {
@@ -1628,6 +1704,16 @@ td {
   }
 
   .rejilla-etl {
+    grid-template-columns: 1fr;
+  }
+
+  .etl-resumen-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .etl-resumen-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -22,6 +22,12 @@ async function cargarCsv(page, nombre, contenido) {
 
 test("12 - Carga CSV y trazabilidad del proceso ETL", async ({ page, evidence }) => {
   await openDashboard(page, evidence);
+  await page
+    .getByRole("link", { name: "Carga y control ETL" })
+    .click();
+  await expect(page.locator("#vista-etl")).toBeVisible();
+  await expect(page.locator("#vista-dashboard")).toBeHidden();
+
   const historico = page.locator("#etl-tabla-historico");
   const mapeo = page.locator("#etl-tabla-mapeo");
 

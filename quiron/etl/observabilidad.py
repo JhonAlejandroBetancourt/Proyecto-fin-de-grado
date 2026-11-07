@@ -73,6 +73,7 @@ class MapeoCampo:
     campo_destino: str
     transformacion: str
     filas: int | None = None
+    estado: str = "Mapeado"
 
     def como_dict(self):
         """Serializa el mapeo a un diccionario simple."""
@@ -82,6 +83,7 @@ class MapeoCampo:
             "campo_destino": self.campo_destino,
             "transformacion": self.transformacion,
             "filas": self.filas,
+            "estado": self.estado,
         }
 
 
@@ -176,6 +178,7 @@ class TrazaETL:
         campo_destino,
         transformacion,
         filas=None,
+        estado="Mapeado",
     ):
         """Añade una entrada a la traza de mapeo de campos."""
 
@@ -184,6 +187,7 @@ class TrazaETL:
             campo_destino=campo_destino,
             transformacion=transformacion,
             filas=filas,
+            estado=estado,
         )
 
         self.mapeos.append(mapeo)

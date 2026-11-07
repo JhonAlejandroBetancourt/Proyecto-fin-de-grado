@@ -123,6 +123,64 @@ def test_ejecutar_etl_con_archivo_incluido():
     assert len(resultado.huella_sha256) == 64
     assert resultado.traza.tiene_errores is False
     assert len(resultado.traza.mapeos) > 0
+    assert "sedes_no_mapeadas" in (
+        resultado.como_dict_traza()["informe"]
+    )
+    assert all(
+        "motivo_geocodificacion" in sede
+        for sede in resultado.informe[
+            "sedes_no_mapeadas"
+        ]
+    )
+
+
+def test_etl_reporta_columnas_de_origen_no_mapeadas():
+    contenido = (
+        ARCHIVO_CIRUGIA_PLASTICA.read_bytes()
+        .replace(
+            b"SEDE -NOMBRE;",
+            b"CAMPO EXTRA;SEDE -NOMBRE;",
+            1,
+        )
+    )
+
+    resultado = ejecutar_etl(
+        origen=contenido,
+        nombre_fuente="con-campo-extra.csv",
+    )
+
+    assert resultado.exito is True
+    assert resultado.informe[
+        "campos_no_mapeados"
+    ][0]["campo_origen"] == "CAMPO EXTRA"
+    assert resultado.informe[
+        "campos_no_mapeados"
+    ][0]["estado"] == "No mapeado"
+
+
+def test_etl_omite_filas_completas_duplicadas():
+    contenido = (
+        "SEDE -NOMBRE;DIRECCION;TELEFONO;"
+        "CORREO ELECTRÓNICO;NATURALEZA;"
+        "TIPO DE PRESTADOR;"
+        "213 - CIRUGÍA PLÁSTICA\n"
+        "Clínica de Prueba;Calle 1;123;"
+        "prueba@example.com;Privada;IPS;X\n"
+        "Clínica de Prueba;Calle 1;123;"
+        "prueba@example.com;Privada;IPS;X\n"
+    ).encode("utf-8")
+
+    resultado = ejecutar_etl(
+        origen=contenido,
+        nombre_fuente="con-duplicado.csv",
+    )
+
+    assert resultado.exito is True
+    assert resultado.tabla is not None
+    assert len(resultado.tabla) == 1
+    assert resultado.informe[
+        "duplicados_exactos"
+    ] == 1
 
 
 def test_ejecutar_etl_huella_reproducible():

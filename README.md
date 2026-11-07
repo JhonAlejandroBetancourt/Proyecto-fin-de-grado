@@ -12,20 +12,29 @@ Abre http://localhost:8050
 
 ## Panel de proceso ETL
 
-El panel **Proceso ETL** muestra los pasos ejecutados al cargar la fuente
-incluida y permite subir un archivo CSV compatible para volver a procesar
-los datos en la sesión actual. El histórico registra también los intentos
-fallidos; se muestran por separado los errores y el mapeo de campos desde
-la fuente hasta el conjunto transformado.
+La navegación separa el **Dashboard** de **Carga y control ETL**. Esta
+segunda página muestra el histórico de pasos, los errores, el mapeo de
+campos y las sedes quirúrgicas que quedaron sin coordenadas, con el motivo
+de cada caso. Las columnas de origen se marcan como mapeadas, no mapeadas,
+faltantes o descartadas intencionalmente.
 
 La carga acepta un único archivo `.csv` de hasta 10 MB. Debe conservar la
 estructura de la fuente oficial: separador `;`, codificación UTF-8 y
 columnas de sede, dirección, contacto, naturaleza, tipo de prestador y
 servicios codificados. Si la lectura o validación falla, el dashboard
-mantiene el último conjunto de datos válido. Una carga correcta actualiza
-los indicadores, filtros, mapa, tablas y exportaciones; el archivo cargado
-permanece solo en el estado de la sesión del navegador y no se guarda en el
-servidor.
+mantiene el último conjunto de datos válido. Las filas idénticas repetidas se contabilizan y se omiten. Las cargas se
+comparan con el conjunto activo: si no hay diferencias, no se reemplaza; si
+cambia una sede, la tabla muestra los campos anteriores y nuevos. Un nombre
+de sede único permite detectar, por ejemplo, un cambio de dirección. Si el
+nombre aparece repetido, también se compara la dirección y una identidad
+ambigua impide sobrescribir el conjunto activo. Una carga modificada
+actualiza los indicadores, filtros, mapa, tablas y exportaciones.
+
+La comparación y el conjunto cargado permanecen solo en el estado de la
+sesión del navegador; no se guardan en una base de datos ni se conservan al
+cerrar o recargar la aplicación. La autenticación, MFA, SSO y administración
+de cuentas aún requieren configurar un proveedor de identidad y persistencia
+antes de habilitarse en producción.
 
 Las coordenadas se asocian mediante una coincidencia única del nombre de la
 sede y su dirección normalizados, no por el orden de las filas ni por la

@@ -288,6 +288,80 @@ def cargar_cirugia_plastica(
         subset=["SEDE -NOMBRE"]
     ).copy()
 
+    duplicados_exactos = int(
+        crudo.duplicated().sum()
+    )
+    duplicados_exactos_registros = (
+        crudo.loc[
+            crudo.duplicated(),
+            [
+                "SEDE -NOMBRE",
+                "DIRECCION",
+            ],
+        ]
+        .fillna("")
+        .rename(
+            columns={
+                "SEDE -NOMBRE": "sede",
+                "DIRECCION": "direccion",
+            }
+        )
+        .to_dict("records")
+    )
+    claves_sede = pd.DataFrame(
+        {
+            "sede": crudo[
+                "SEDE -NOMBRE"
+            ].map(_normalizar_clave_sede),
+            "direccion": crudo[
+                "DIRECCION"
+            ].map(_normalizar_clave_sede),
+        },
+        index=crudo.index,
+    )
+    identidad_completa = claves_sede[
+        ["sede", "direccion"]
+    ].ne("").all(axis=1)
+    identidades_repetidas = int(
+        claves_sede.loc[
+            identidad_completa
+        ].duplicated(
+            subset=["sede", "direccion"],
+            keep="first",
+        ).sum()
+    )
+    identidades_repetidas_keys = {
+        tuple(fila)
+        for fila in claves_sede.loc[
+            identidad_completa
+            & claves_sede.duplicated(
+                subset=["sede", "direccion"],
+                keep=False,
+            ),
+            ["sede", "direccion"],
+        ].itertuples(
+            index=False,
+            name=None,
+        )
+    }
+    crudo = crudo.drop_duplicates().copy()
+    crudo.attrs.update(
+        {
+            "duplicados_exactos": (
+                duplicados_exactos
+            ),
+            "duplicados_exactos_registros": (
+                duplicados_exactos_registros
+            ),
+            "identidades_repetidas": (
+                identidades_repetidas
+            ),
+            "identidades_repetidas_keys": (
+                identidades_repetidas_keys
+            ),
+        }
+    )
+
     crudo = crudo.reset_index(
         drop=True
     )
@@ -386,6 +460,9 @@ def cargar_cirugia_plastica(
         on="sede_id",
         how="left",
         validate="many_to_one",
+    )
+    tabla.attrs.update(
+        crudo.attrs
     )
 
     columnas_orden = [
@@ -675,23 +752,52 @@ def cargar_oferta_con_coordenadas(
         )
     )
 
-    sedes_oferta = sedes_oferta.loc[
+    identidad_oferta_valida = (
         sedes_oferta[
             claves_identidad
         ].ne("").all(axis=1)
-        & ~sedes_oferta.duplicated(
-            subset=claves_identidad,
-            keep=False,
-        )
-    ]
-    sedes = sedes.loc[
+    )
+    identidad_referencia_valida = (
         sedes[
             claves_identidad
         ].ne("").all(axis=1)
-        & ~sedes.duplicated(
-            subset=claves_identidad,
-            keep=False,
+    )
+    duplicada_en_oferta = sedes_oferta.duplicated(
+        subset=claves_identidad,
+        keep=False,
+    )
+    identidades_repetidas_origen = set(
+        oferta.attrs.get(
+            "identidades_repetidas_keys",
+            set(),
         )
+    )
+    if identidades_repetidas_origen:
+        duplicada_en_oferta |= sedes_oferta[
+            claves_identidad
+        ].apply(
+            lambda fila: tuple(fila)
+            in identidades_repetidas_origen,
+            axis=1,
+        )
+    duplicada_en_referencia = sedes.duplicated(
+        subset=claves_identidad,
+        keep=False,
+    )
+    frecuencia_referencia = (
+        sedes.loc[
+            identidad_referencia_valida
+        ]
+        .groupby(
+            claves_identidad,
+            dropna=False,
+        )
+        .size()
+    )
+
+    referencias_unicas = sedes.loc[
+        identidad_referencia_valida
+        & ~duplicada_en_referencia
     ]
 
     columnas_para_union = [
@@ -703,10 +809,16 @@ def cargar_oferta_con_coordenadas(
         "coordenada_valida",
     ]
 
-    coordenadas_por_sede = sedes_oferta.merge(
-        sedes[columnas_para_union],
+    coordenadas_por_sede = sedes_oferta.loc[
+        identidad_oferta_valida
+        & ~duplicada_en_oferta
+    ].merge(
+        referencias_unicas[
+            columnas_para_union
+        ],
         on=claves_identidad,
-        how="inner",
+        how="left",
+        indicator=True,
         validate="one_to_one",
     )[
         [
@@ -716,14 +828,97 @@ def cargar_oferta_con_coordenadas(
             "longitud",
             "geocodificado",
             "coordenada_valida",
+            "_merge",
         ]
     ]
 
+    motivos_por_sede = {}
+    coordenadas_por_sede_indexadas = (
+        coordenadas_por_sede.set_index(
+            "sede_id"
+        )
+    )
+
+    for _, sede in sedes_oferta.iterrows():
+        sede_id = sede["sede_id"]
+        clave = tuple(
+            sede[columna]
+            for columna in claves_identidad
+        )
+
+        if not identidad_oferta_valida.loc[
+            sede.name
+        ]:
+            motivo = (
+                "Nombre o dirección incompletos; "
+                "no se puede buscar una coordenada."
+            )
+        elif duplicada_en_oferta.loc[
+            sede.name
+        ]:
+            motivo = (
+                "Identidad repetida en el archivo "
+                "cargado; coincidencia ambigua."
+            )
+        elif frecuencia_referencia.get(
+            clave,
+            0,
+        ) > 1:
+            motivo = (
+                "La identidad aparece repetida en "
+                "el archivo de geocodificación."
+            )
+        elif sede_id not in coordenadas_por_sede_indexadas.index:
+            motivo = (
+                "No existe una coincidencia única "
+                "en el archivo de geocodificación."
+            )
+        else:
+            coincidencia = (
+                coordenadas_por_sede_indexadas.loc[
+                    sede_id
+                ]
+            )
+            if coincidencia["_merge"] != "both":
+                motivo = (
+                    "No existe una coincidencia única "
+                    "en el archivo de geocodificación."
+                )
+            elif not bool(
+                coincidencia["geocodificado"]
+            ):
+                motivo = (
+                    "La sede coincide, pero no pudo "
+                    "geocodificarse."
+                )
+            elif not bool(
+                coincidencia["coordenada_valida"]
+            ):
+                motivo = (
+                    "La sede coincide, pero sus "
+                    "coordenadas están ausentes o "
+                    "fuera de rango."
+                )
+            else:
+                motivo = (
+                    "Coordenada asociada correctamente."
+                )
+
+        motivos_por_sede[sede_id] = motivo
+
+    coordenadas_por_sede = coordenadas_por_sede.drop(
+        columns="_merge"
+    )
     resultado = oferta.merge(
         coordenadas_por_sede,
         on="sede_id",
         how="left",
         validate="many_to_one",
+    )
+    resultado["motivo_geocodificacion"] = (
+        resultado["sede_id"].map(
+            motivos_por_sede
+        )
     )
 
     resultado["geocodificado"] = (
@@ -736,6 +931,10 @@ def cargar_oferta_con_coordenadas(
         resultado["coordenada_valida"]
         .fillna(False)
         .astype(bool)
+    )
+
+    resultado.attrs.update(
+        oferta.attrs
     )
 
     return resultado

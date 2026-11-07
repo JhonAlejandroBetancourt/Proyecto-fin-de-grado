@@ -15,7 +15,8 @@ conjunto de datos vigente y mostrar los errores sin interrumpirse.
 """
 
 import hashlib
-from dataclasses import dataclass
+import io
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -49,6 +50,9 @@ class ResultadoETL:
     huella_sha256: str | None
     nombre_fuente: str
     exito: bool
+    informe: dict = field(
+        default_factory=dict
+    )
 
     def como_dict_traza(self):
         """Devuelve la traza serializada junto con metadatos de la fuente."""
@@ -61,6 +65,7 @@ class ResultadoETL:
             self.nombre_fuente
         )
         datos["exito"] = self.exito
+        datos["informe"] = self.informe
         return datos
 
 
@@ -116,40 +121,80 @@ def _normalizar_a_bytes(
 
 
 def _registrar_mapeo_campos(
-    tabla,
+    columnas_origen,
     traza,
+    filas=None,
 ):
-    """Documenta el mapeo de campos origen → destino en la traza."""
+    """Registra tanto los mapeos reales como los campos ignorados."""
 
-    filas = len(tabla)
+    columnas = [
+        " ".join(
+            str(columna).split()
+        )
+        for columna in columnas_origen
+    ]
 
-    for origen, destino in (
-        MAPEO_COLUMNAS_BASE.items()
-    ):
+    for origen in columnas:
+        if origen in MAPEO_COLUMNAS_BASE:
+            destino = MAPEO_COLUMNAS_BASE[
+                origen
+            ]
+            transformacion = (
+                "Renombrado y normalizado "
+                "(sin saltos de línea)"
+            )
+            estado = "Mapeado"
+        elif origen[:1].isdigit():
+            destino = (
+                "codigo_servicio, nombre_servicio"
+            )
+            transformacion = (
+                "Columna de servicio en formato "
+                "ancho; se transforma en filas por "
+                "sede y servicio marcado con 'X'."
+            )
+            estado = "Mapeado"
+        elif origen.casefold().startswith(
+            "unnamed"
+        ):
+            destino = "—"
+            transformacion = (
+                "Columna auxiliar sin encabezado; "
+                "se descarta."
+            )
+            estado = "Ignorado"
+        else:
+            destino = "Sin mapear"
+            transformacion = (
+                "Campo de origen no reconocido; "
+                "se conserva en el informe y no se "
+                "usa en los indicadores."
+            )
+            estado = "No mapeado"
+
         traza.mapear(
             campo_origen=origen,
             campo_destino=destino,
-            transformacion=(
-                "Renombrado y normalizado "
-                "(sin saltos de línea)"
-            ),
+            transformacion=transformacion,
             filas=filas,
+            estado=estado,
         )
 
-    traza.mapear(
-        campo_origen=(
-            "Columnas '<código> - <nombre>'"
-        ),
-        campo_destino=(
-            "codigo_servicio, nombre_servicio"
-        ),
-        transformacion=(
-            "Transformación de formato ancho a "
-            "largo: una fila por sede y servicio "
-            "marcado con 'X'"
-        ),
-        filas=filas,
-    )
+    presentes = set(columnas)
+    for campo in MAPEO_COLUMNAS_BASE:
+        if campo not in presentes:
+            traza.mapear(
+                campo_origen="—",
+                campo_destino=(
+                    MAPEO_COLUMNAS_BASE[campo]
+                ),
+                transformacion=(
+                    "Campo obligatorio ausente en "
+                    "el archivo de origen."
+                ),
+                filas=filas,
+                estado="Faltante",
+            )
 
     traza.mapear(
         campo_origen="codigo_servicio",
@@ -159,16 +204,19 @@ def _registrar_mapeo_campos(
             f"quirúrgicos {sorted(CODIGOS_QUIRURGICOS)}"
         ),
         filas=filas,
+        estado="Derivado",
     )
 
     traza.mapear(
         campo_origen="índice de fila",
         campo_destino="sede_id",
         transformacion=(
-            "Identificador de sede derivado del "
-            "orden de filas del origen"
+            "Identificador técnico de esta carga; "
+            "no se usa para comparar cambios entre "
+            "ejecuciones"
         ),
         filas=filas,
+        estado="Derivado",
     )
 
     traza.mapear(
@@ -182,7 +230,26 @@ def _registrar_mapeo_campos(
             "del orden de las filas"
         ),
         filas=filas,
+        estado="Enriquecido",
     )
+
+
+def _columnas_origen(contenido):
+    """Lee los encabezados sin cargar de nuevo el conjunto completo."""
+
+    tabla = pd.read_csv(
+        io.BytesIO(contenido),
+        sep=";",
+        encoding="utf-8-sig",
+        dtype=str,
+        nrows=0,
+    )
+    return [
+        " ".join(
+            str(columna).split()
+        )
+        for columna in tabla.columns
+    ]
 
 
 def ejecutar_etl(
@@ -220,6 +287,15 @@ def ejecutar_etl(
         nombre_fuente
         or "archivo cargado"
     )
+    columnas_origen = None
+    informe = {
+        "campos_no_mapeados": [],
+        "campos_faltantes": [],
+        "sedes_no_mapeadas": [],
+        "duplicados": [],
+        "duplicados_exactos": 0,
+        "identidades_repetidas": 0,
+    }
 
     try:
         contenido, nombre = _normalizar_a_bytes(
@@ -239,6 +315,10 @@ def ejecutar_etl(
             nivel=NivelTraza.INFO,
         )
 
+        columnas_origen = _columnas_origen(
+            contenido
+        )
+
         huella_incluida = _calcular_huella(
             ARCHIVO_CIRUGIA_PLASTICA.read_bytes()
         )
@@ -249,6 +329,61 @@ def ejecutar_etl(
         tabla = cargar_oferta_con_coordenadas(
             origen=contenido,
             nombre_fuente=nombre,
+        )
+        _registrar_mapeo_campos(
+            columnas_origen,
+            traza,
+            filas=len(tabla),
+        )
+
+        informe["campos_no_mapeados"] = [
+            mapeo.como_dict()
+            for mapeo in traza.mapeos
+            if mapeo.estado == "No mapeado"
+        ]
+        informe["campos_faltantes"] = [
+            mapeo.como_dict()
+            for mapeo in traza.mapeos
+            if mapeo.estado == "Faltante"
+        ]
+        informe["duplicados_exactos"] = int(
+            tabla.attrs.get(
+                "duplicados_exactos",
+                0,
+            )
+        )
+        informe["duplicados"] = list(
+            tabla.attrs.get(
+                "duplicados_exactos_registros",
+                [],
+            )
+        )
+        informe["identidades_repetidas"] = int(
+            tabla.attrs.get(
+                "identidades_repetidas",
+                0,
+            )
+        )
+        informe["sedes_no_mapeadas"] = (
+            tabla.loc[
+                tabla["es_quirurgico"]
+                .fillna(False)
+                .astype(bool)
+                & ~tabla[
+                    "coordenada_valida"
+                ].fillna(False).astype(bool),
+                [
+                    "sede_id",
+                    "sede",
+                    "direccion",
+                    "motivo_geocodificacion",
+                ],
+            ]
+            .drop_duplicates(
+                subset=["sede_id"]
+            )
+            .fillna("")
+            .to_dict("records")
         )
 
         sedes_quirurgicas = tabla.loc[
@@ -269,6 +404,64 @@ def ejecutar_etl(
                 "coordenada_valida"
             ].fillna(False).astype(bool).sum()
         )
+        informe["resumen"] = {
+            "registros": int(len(tabla)),
+            "sedes_quirurgicas": int(
+                sedes_totales
+            ),
+            "sedes_con_coordenadas": (
+                sedes_con_coordenadas
+            ),
+            "sedes_sin_coordenadas": int(
+                len(
+                    informe[
+                        "sedes_no_mapeadas"
+                    ]
+                )
+            ),
+            "campos_mapeados": sum(
+                mapeo.estado in (
+                    "Mapeado",
+                    "Derivado",
+                    "Enriquecido",
+                )
+                for mapeo in traza.mapeos
+            ),
+            "campos_no_mapeados": len(
+                informe["campos_no_mapeados"]
+            ),
+        }
+
+        if informe["duplicados_exactos"]:
+            traza.registrar(
+                "Deduplicación",
+                (
+                    f"Se omitieron "
+                    f"{informe['duplicados_exactos']} "
+                    "filas idénticas repetidas del "
+                    "archivo."
+                ),
+                nivel=NivelTraza.ADVERTENCIA,
+                filas=(
+                    informe["duplicados_exactos"]
+                ),
+            )
+        if informe["identidades_repetidas"]:
+            traza.registrar(
+                "Identidades repetidas",
+                (
+                    f"Se detectaron "
+                    f"{informe['identidades_repetidas']} "
+                    "filas con nombre y dirección "
+                    "repetidos; se revisará si sus "
+                    "datos coinciden antes de "
+                    "actualizar."
+                ),
+                nivel=NivelTraza.ADVERTENCIA,
+                filas=(
+                    informe["identidades_repetidas"]
+                ),
+            )
 
         if misma_fuente_binaria:
             mensaje_geocodificacion = (
@@ -325,11 +518,6 @@ def ejecutar_etl(
             filas=len(tabla),
         )
 
-        _registrar_mapeo_campos(
-            tabla,
-            traza,
-        )
-
         quirurgicas = tabla[
             tabla["es_quirurgico"]
         ]
@@ -353,9 +541,25 @@ def ejecutar_etl(
             huella_sha256=huella,
             nombre_fuente=nombre,
             exito=True,
+            informe=informe,
         )
 
     except Exception as error:  # noqa: BLE001
+        if columnas_origen is not None and not traza.mapeos:
+            _registrar_mapeo_campos(
+                columnas_origen,
+                traza,
+            )
+            informe["campos_no_mapeados"] = [
+                mapeo.como_dict()
+                for mapeo in traza.mapeos
+                if mapeo.estado == "No mapeado"
+            ]
+            informe["campos_faltantes"] = [
+                mapeo.como_dict()
+                for mapeo in traza.mapeos
+                if mapeo.estado == "Faltante"
+            ]
         traza.registrar_error(
             "Validación",
             "El ETL no pudo completarse: "
@@ -368,4 +572,5 @@ def ejecutar_etl(
             huella_sha256=huella,
             nombre_fuente=nombre,
             exito=False,
+            informe=informe,
         )

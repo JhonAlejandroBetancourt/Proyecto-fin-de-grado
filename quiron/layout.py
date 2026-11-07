@@ -1398,12 +1398,7 @@ def _panel_etl(
     metadata,
     traza_etl=None,
 ):
-    """Construye el panel de proceso ETL con carga de CSV.
-
-    Muestra la carga de un CSV, el histórico de pasos, los errores y la
-    traza de mapeo de campos. Los callbacks rellenan las tablas y el
-    estado a partir de la ejecución instrumentada del ETL.
-    """
+    """Construye la página independiente de carga y revisión del ETL."""
 
     fuente_inicial = metadata.get(
         "archivo_principal",
@@ -1419,7 +1414,12 @@ def _panel_etl(
         else ""
     )
 
-    return html.Section(
+    informe = traza_etl.get(
+        "informe",
+        {},
+    )
+
+    return html.Main(
         className="panel-etl",
         **{
             "aria-labelledby": "titulo-etl",
@@ -1431,19 +1431,17 @@ def _panel_etl(
                     html.Div(
                         children=[
                             html.H2(
-                                "Proceso ETL",
+                                "Carga y control de datos",
                                 id="titulo-etl",
                             ),
                             html.P(
                                 (
-                                    "Carga un CSV con la "
-                                    "misma estructura de la "
-                                    "fuente para reejecutar "
-                                    "el proceso de extracción, "
-                                    "transformación y carga. "
-                                    "El histórico, los errores "
-                                    "y la traza de mapeo de "
-                                    "campos se muestran abajo."
+                                    "Carga una fuente CSV y "
+                                    "revisa qué campos se "
+                                    "mapearon, qué sedes "
+                                    "quedaron sin coordenadas "
+                                    "y qué cambió respecto a "
+                                    "la carga anterior."
                                 ),
                                 className=(
                                     "descripcion-seccion"
@@ -1452,7 +1450,7 @@ def _panel_etl(
                         ],
                     ),
                     html.Span(
-                        "Observabilidad del ETL",
+                        "Observabilidad ETL",
                         className="etiqueta-etl",
                     ),
                 ],
@@ -1502,6 +1500,68 @@ def _panel_etl(
                 },
             ),
             html.Div(
+                id="etl-resumen",
+                children=resumen_etl_component(
+                    informe
+                ),
+                **{
+                    "aria-live": "polite",
+                },
+            ),
+            html.Div(
+                className="rejilla-etl",
+                children=[
+                    _tabla_etl(
+                        "Sedes sin coordenadas",
+                        "etl-tabla-sedes-no-mapeadas",
+                        [
+                            {
+                                "name": "Sede",
+                                "id": "sede",
+                            },
+                            {
+                                "name": "Dirección",
+                                "id": "direccion",
+                            },
+                            {
+                                "name": "Motivo",
+                                "id": "motivo_geocodificacion",
+                            },
+                        ],
+                        data=informe.get(
+                            "sedes_no_mapeadas",
+                            [],
+                        ),
+                    ),
+                    _tabla_etl(
+                        "Cambios y duplicados detectados",
+                        "etl-tabla-cambios",
+                        [
+                            {
+                                "name": "Sede",
+                                "id": "sede",
+                            },
+                            {
+                                "name": "Campo",
+                                "id": "campo",
+                            },
+                            {
+                                "name": "Valor anterior",
+                                "id": "valor_anterior",
+                            },
+                            {
+                                "name": "Valor nuevo",
+                                "id": "valor_nuevo",
+                            },
+                        ],
+                        data=traza_etl.get(
+                            "cambios",
+                            [],
+                        ),
+                    ),
+                ],
+            ),
+            html.Div(
                 className="rejilla-etl",
                 children=[
                     _tabla_etl(
@@ -1539,6 +1599,10 @@ def _panel_etl(
                             {
                                 "name": "Filas",
                                 "id": "filas",
+                            },
+                            {
+                                "name": "Estado",
+                                "id": "estado",
                             },
                         ],
                         data=traza_etl.get(
@@ -1591,10 +1655,148 @@ def _panel_etl(
                     ),
                 ],
             ),
+            html.P(
+                (
+                    "Las cargas se comparan por nombre de sede "
+                    "cuando es único; si hay nombres repetidos, "
+                    "se usa también la dirección. Ante una "
+                    "identidad ambigua se conserva el conjunto "
+                    "activo en lugar de sobrescribir datos "
+                    "inciertos."
+                ),
+                className="etl-nota-seguridad",
+            ),
             dcc.Store(id="etl-dataset-activo"),
             dcc.Store(
                 id="etl-traza",
                 data=traza_etl,
+            ),
+        ],
+    )
+
+
+def resumen_etl_component(
+    informe,
+    comparacion=None,
+):
+    """Resume métricas ETL y del cotejo entre cargas."""
+
+    resumen = informe.get(
+        "resumen",
+        {},
+    )
+    comparacion = comparacion or {}
+    metricas = [
+        (
+            "Sedes quirúrgicas",
+            resumen.get(
+                "sedes_quirurgicas",
+                0,
+            ),
+        ),
+        (
+            "Con coordenadas",
+            resumen.get(
+                "sedes_con_coordenadas",
+                0,
+            ),
+        ),
+        (
+            "Sin coordenadas",
+            resumen.get(
+                "sedes_sin_coordenadas",
+                0,
+            ),
+        ),
+        (
+            "Campos sin mapear",
+            len(
+                informe.get(
+                    "campos_no_mapeados",
+                    [],
+                )
+            ),
+        ),
+        (
+            "Duplicados idénticos omitidos",
+            informe.get(
+                "duplicados_exactos",
+                0,
+            ),
+        ),
+        (
+            "Identidades repetidas",
+            informe.get(
+                "identidades_repetidas",
+                0,
+            ),
+        ),
+        (
+            "Registros actualizados",
+            comparacion.get(
+                "actualizadas",
+                0,
+            ),
+        ),
+        (
+            "Registros sin cambios",
+            comparacion.get(
+                "sin_cambios",
+                0,
+            ),
+        ),
+        (
+            "Registros nuevos",
+            comparacion.get(
+                "nuevas",
+                0,
+            ),
+        ),
+    ]
+
+    return html.Div(
+        className="etl-resumen-grid",
+        children=[
+            html.Article(
+                className="etl-resumen-tarjeta",
+                children=[
+                    html.Span(
+                        etiqueta,
+                        className=(
+                            "etl-resumen-etiqueta"
+                        ),
+                    ),
+                    html.Strong(
+                        _formatear_numero(valor),
+                        className=(
+                            "etl-resumen-valor"
+                        ),
+                    ),
+                ],
+            )
+            for etiqueta, valor in metricas
+        ],
+    )
+
+
+def _navegacion_principal():
+    return html.Nav(
+        className="navegacion-principal",
+        **{
+            "aria-label": "Navegación principal",
+        },
+        children=[
+            dcc.Link(
+                "Dashboard",
+                id="nav-dashboard",
+                href="/",
+                className="enlace-nav enlace-nav-activo",
+            ),
+            dcc.Link(
+                "Carga y control ETL",
+                id="nav-etl",
+                href="/etl",
+                className="enlace-nav",
             ),
         ],
     )
@@ -1616,33 +1818,50 @@ def build_layout(
     return html.Div(
         className="lienzo",
         children=[
+            dcc.Location(
+                id="url",
+                refresh=False,
+            ),
             _encabezado(),
-            html.Main(
+            _navegacion_principal(),
+            html.Div(
+                id="vista-dashboard",
+                className="pagina",
                 children=[
-                    _panel_trazabilidad(
-                        metadata
+                    html.Main(
+                        children=[
+                            _panel_trazabilidad(
+                                metadata
+                            ),
+                            _panel_filtros(
+                                opciones_filtros
+                            ),
+                            _panel_asistente(),
+                            _panel_kpis(
+                                resumen
+                            ),
+                            _seccion_mapa(
+                                figura_mapa,
+                                sedes_geocodificadas,
+                                sedes_sin_coordenadas,
+                            ),
+                            _seccion_tablas(
+                                por_servicio,
+                                por_naturaleza,
+                            ),
+                            _panel_exportacion(),
+                        ],
                     ),
+                ],
+            ),
+            html.Div(
+                id="vista-etl",
+                className="pagina pagina-oculta",
+                children=[
                     _panel_etl(
                         metadata,
                         traza_etl,
                     ),
-                    _panel_filtros(
-                        opciones_filtros
-                    ),
-                    _panel_asistente(),
-                    _panel_kpis(
-                        resumen
-                    ),
-                    _seccion_mapa(
-                        figura_mapa,
-                        sedes_geocodificadas,
-                        sedes_sin_coordenadas,
-                    ),
-                    _seccion_tablas(
-                        por_servicio,
-                        por_naturaleza,
-                    ),
-                    _panel_exportacion(),
                 ],
             ),
             _pie_de_pagina(
