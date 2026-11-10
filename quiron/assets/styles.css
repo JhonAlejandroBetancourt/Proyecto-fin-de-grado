@@ -201,8 +201,20 @@ a:focus-visible {
   text-decoration: none;
 }
 
-.acciones-autenticacion a:hover {
+.acciones-autenticacion a:hover,
+.acciones-autenticacion a.activo {
   background: rgba(255, 255, 255, 0.14);
+}
+
+.acciones-autenticacion a.activo {
+  border-color: rgba(255, 255, 255, 0.72);
+  font-weight: 700;
+}
+
+.enlace-navegacion {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
 }
 
 
@@ -1550,7 +1562,7 @@ td {
 }
 /* Panel de proceso ETL */
 .panel-etl {
-  margin-top: 24px;
+  margin-top: 18px;
   padding: 24px;
   background: var(--tarjeta);
   border: 1px solid var(--borde);
@@ -1566,7 +1578,7 @@ td {
   margin-bottom: 18px;
 }
 
-.encabezado-etl h2 {
+.encabezado-etl h3 {
   margin: 0 0 5px;
   color: var(--morado-profundo);
   font-size: 20px;
@@ -1639,9 +1651,31 @@ td {
 
 .rejilla-etl {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
   margin-top: 18px;
+}
+
+.vista-etl {
+  margin-top: 24px;
+}
+
+.cabecera-vista-etl {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.cabecera-vista-etl h2 {
+  margin: 0 0 5px;
+  color: var(--morado-profundo);
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.cabecera-vista-etl .descripcion-seccion {
+  margin-bottom: 0;
 }
 
 .tarjeta-etl h3 {
@@ -1650,13 +1684,43 @@ td {
   font-size: 15px;
 }
 
+.descripcion-tabla-etl {
+  margin: 0 0 14px;
+  color: var(--texto-tenue);
+  font-size: 13px;
+}
+
+.tarjeta-etl {
+  min-width: 0;
+  margin-top: 0;
+  padding: 22px;
+  overflow: hidden;
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-grande);
+  box-shadow: var(--sombra);
+}
+
 @media (max-width: 760px) {
+  .acciones-autenticacion {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin-top: 18px;
+  }
+
   .encabezado-etl {
     flex-direction: column;
     gap: 12px;
   }
 
-  .rejilla-etl {
-    grid-template-columns: 1fr;
+  .cabecera-vista-etl {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .panel-etl,
+  .tarjeta-etl {
+    padding: 18px;
   }
 }

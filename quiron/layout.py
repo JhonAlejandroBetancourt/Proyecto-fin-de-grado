@@ -67,26 +67,55 @@ def _encabezado(
         ),
     ]
     if auth_enabled:
-        children.append(
-            html.Nav(
-                className="acciones-autenticacion",
-                **{
-                    "aria-label": (
-                        "Acciones de usuario"
-                    ),
-                },
-                children=[
-                    html.A(
-                        "Administración",
-                        href="/admin",
-                    ),
-                    html.A(
-                        "Cerrar sesión",
-                        href="/auth/logout",
-                    ),
-                ],
-            )
+        enlaces_usuario = [
+            dcc.Link(
+                "Dashboard",
+                href="/",
+                id="nav-dashboard",
+                className="enlace-navegacion activo",
+            ),
+            dcc.Link(
+                "Proceso ETL",
+                href="/etl",
+                id="nav-etl",
+                className="enlace-navegacion",
+            ),
+            html.A(
+                "Administración",
+                href="/admin",
+                className="enlace-navegacion",
+            ),
+            html.A(
+                "Cerrar sesión",
+                href="/auth/logout",
+                className="enlace-navegacion",
+            ),
+        ]
+    else:
+        enlaces_usuario = [
+            dcc.Link(
+                "Dashboard",
+                href="/",
+                id="nav-dashboard",
+                className="enlace-navegacion activo",
+            ),
+            dcc.Link(
+                "Proceso ETL",
+                href="/etl",
+                id="nav-etl",
+                className="enlace-navegacion",
+            ),
+        ]
+
+    children.append(
+        html.Nav(
+            className="acciones-autenticacion",
+            **{
+                "aria-label": "Navegación principal",
+            },
+            children=enlaces_usuario,
         )
+    )
 
     return html.Header(
         className="encabezado",
@@ -1329,6 +1358,7 @@ def _tabla_etl(
     identificador,
     columnas,
     data=None,
+    descripcion="",
 ):
     """Construye una tabla del panel ETL actualizable por callback."""
 
@@ -1336,6 +1366,12 @@ def _tabla_etl(
         className="tarjeta-tabla tarjeta-etl",
         children=[
             html.H3(titulo),
+            html.P(
+                descripcion,
+                className="descripcion-tabla-etl",
+            )
+            if descripcion
+            else None,
             dash_table.DataTable(
                 id=identificador,
                 data=data or [],
@@ -1346,6 +1382,7 @@ def _tabla_etl(
                 sort_action="native",
                 style_table={
                     "overflowX": "auto",
+                    "minWidth": "100%",
                 },
                 style_header={
                     "backgroundColor": "#330968",
@@ -1364,6 +1401,7 @@ def _tabla_etl(
                     "textAlign": "left",
                     "whiteSpace": "normal",
                     "height": "auto",
+                    "minWidth": "100px",
                     "border": "none",
                     "borderBottom": (
                         "1px solid #E4DEF2"
@@ -1444,14 +1482,11 @@ def _panel_etl(
         else ""
     )
 
-    return html.Section(
-        className="panel-etl",
-        **{
-            "aria-labelledby": "titulo-etl",
-        },
+    return html.Div(
+        className="vista-etl",
         children=[
             html.Div(
-                className="encabezado-etl",
+                className="cabecera-vista-etl",
                 children=[
                     html.Div(
                         children=[
@@ -1461,18 +1496,11 @@ def _panel_etl(
                             ),
                             html.P(
                                 (
-                                    "Carga un CSV con la "
-                                    "misma estructura de la "
-                                    "fuente para reejecutar "
-                                    "el proceso de extracción, "
-                                    "transformación y carga. "
-                                    "El histórico, los errores "
-                                    "y la traza de mapeo de "
-                                    "campos se muestran abajo."
+                                    "Carga y revisa cada ejecución "
+                                    "de extracción, transformación "
+                                    "y carga en un espacio dedicado."
                                 ),
-                                className=(
-                                    "descripcion-seccion"
-                                ),
+                                className="descripcion-seccion",
                             ),
                         ],
                     ),
@@ -1482,55 +1510,88 @@ def _panel_etl(
                     ),
                 ],
             ),
-            dcc.Upload(
-                id="etl-carga-csv",
-                className="etl-zona-carga",
-                accept=".csv",
-                multiple=False,
-                children=html.Div(
-                    children=[
-                        html.Span(
-                            "⬆",
-                            className="etl-icono-carga",
-                            **{
-                                "aria-hidden": "true",
-                            },
-                        ),
-                        html.Span(
-                            (
-                                "Arrastra un CSV aquí o "
-                                "haz clic para seleccionarlo"
+            html.Section(
+                className="panel-etl",
+                **{
+                    "aria-labelledby": "titulo-carga-etl",
+                },
+                children=[
+                    html.Div(
+                        className="encabezado-etl",
+                        children=[
+                            html.Div(
+                                children=[
+                                    html.H3(
+                                        "Cargar archivo fuente",
+                                        id="titulo-carga-etl",
+                                    ),
+                                    html.P(
+                                        (
+                                            "Sube un CSV compatible para "
+                                            "procesar los datos. El "
+                                            "conjunto válido activo se "
+                                            "conserva si una carga nueva "
+                                            "presenta errores."
+                                        ),
+                                        className=(
+                                            "descripcion-seccion"
+                                        ),
+                                    ),
+                                ],
                             ),
+                        ],
+                    ),
+                    dcc.Upload(
+                        id="etl-carga-csv",
+                        className="etl-zona-carga",
+                        accept=".csv",
+                        multiple=False,
+                        children=html.Div(
+                            children=[
+                                html.Span(
+                                    "⬆",
+                                    className="etl-icono-carga",
+                                    **{
+                                        "aria-hidden": "true",
+                                    },
+                                ),
+                                html.Span(
+                                    (
+                                        "Arrastra un CSV aquí o "
+                                        "haz clic para seleccionarlo"
+                                    ),
+                                ),
+                            ],
                         ),
-                    ],
-                ),
-            ),
-            html.Div(
-                id="etl-estado",
-                className="etl-estado",
-                children=(
-                    "Conjunto de datos activo: "
-                    f"{fuente_inicial} "
-                    "(incluido en el proyecto)"
-                    f"{sufijo_huella}."
-                ),
-                **{
-                    "aria-live": "polite",
-                },
-            ),
-            html.Div(
-                id="etl-panel-errores",
-                className="etl-errores etl-oculto",
-                children=[],
-                **{
-                    "aria-live": "assertive",
-                },
+                    ),
+                    html.Div(
+                        id="etl-estado",
+                        className="etl-estado",
+                        children=(
+                            "Conjunto de datos activo: "
+                            f"{fuente_inicial} "
+                            "(incluido en el proyecto)"
+                            f"{sufijo_huella}."
+                        ),
+                        **{
+                            "aria-live": "polite",
+                        },
+                    ),
+                    html.Div(
+                        id="etl-panel-errores",
+                        className="etl-errores etl-oculto",
+                        children=[],
+                        **{
+                            "aria-live": "assertive",
+                        },
+                    ),
+                ],
             ),
             html.Div(
                 className="rejilla-etl",
                 children=[
                     _tabla_etl(
-                        "Histórico del proceso",
+                        "Historial de ejecuciones",
                         "etl-tabla-historico",
                         [
                             {
@@ -1579,9 +1640,16 @@ def _panel_etl(
                                 )
                             ],
                         ),
+                        descripcion=(
+                            "Consulta los pasos registrados para "
+                            "cada carga, incluidos tiempos, "
+                            "volumen de filas, advertencias y "
+                            "errores. El historial se conserva "
+                            "durante la sesión del navegador."
+                        ),
                     ),
                     _tabla_etl(
-                        "Traza de mapeo de campos",
+                        "Trazabilidad de campos",
                         "etl-tabla-mapeo",
                         [
                             {
@@ -1613,6 +1681,11 @@ def _panel_etl(
                             "mapeos",
                             [],
                         ),
+                        descripcion=(
+                            "Revisa cómo se traduce cada columna "
+                            "de la fuente al modelo interno y qué "
+                            "transformación se aplica."
+                        ),
                     ),
                 ],
             ),
@@ -1642,37 +1715,57 @@ def build_layout(
     return html.Div(
         className="lienzo",
         children=[
+            dcc.Location(
+                id="url",
+                refresh=False,
+            ),
             _encabezado(auth_enabled),
             html.Main(
                 children=[
-                    _panel_trazabilidad(
-                        metadata
+                    html.Div(
+                        id="dashboard-page",
+                        children=[
+                            _panel_trazabilidad(
+                                metadata
+                            ),
+                            _panel_filtros(
+                                opciones_filtros
+                            ),
+                            _panel_asistente(),
+                            _panel_kpis(
+                                resumen
+                            ),
+                            _seccion_mapa(
+                                figura_mapa,
+                                sedes_geocodificadas,
+                                sedes_sin_coordenadas,
+                            ),
+                            _seccion_tablas(
+                                por_servicio,
+                                por_naturaleza,
+                            ),
+                            _panel_exportacion(),
+                            _pie_de_pagina(
+                                metadata
+                            ),
+                        ],
                     ),
-                    _panel_etl(
-                        metadata,
-                        traza_etl,
+                    html.Div(
+                        id="etl-page",
+                        style={
+                            "display": "none",
+                        },
+                        children=[
+                            _panel_etl(
+                                metadata,
+                                traza_etl,
+                            ),
+                            _pie_de_pagina(
+                                metadata
+                            ),
+                        ],
                     ),
-                    _panel_filtros(
-                        opciones_filtros
-                    ),
-                    _panel_asistente(),
-                    _panel_kpis(
-                        resumen
-                    ),
-                    _seccion_mapa(
-                        figura_mapa,
-                        sedes_geocodificadas,
-                        sedes_sin_coordenadas,
-                    ),
-                    _seccion_tablas(
-                        por_servicio,
-                        por_naturaleza,
-                    ),
-                    _panel_exportacion(),
                 ],
-            ),
-            _pie_de_pagina(
-                metadata
             ),
         ],
     )
