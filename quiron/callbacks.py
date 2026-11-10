@@ -402,6 +402,34 @@ def registrar_callbacks(
     """
 
     @app.callback(
+        Output("dashboard-page", "style"),
+        Output("etl-page", "style"),
+        Output("nav-dashboard", "className"),
+        Output("nav-etl", "className"),
+        Input("url", "pathname"),
+    )
+    def navegar_entre_vistas(pathname):
+        """Muestra el área solicitada sin desmontar los componentes."""
+
+        mostrar_etl = (
+            (pathname or "/").rstrip("/") == "/etl"
+        )
+        return (
+            {"display": "none"} if mostrar_etl else {},
+            {} if mostrar_etl else {"display": "none"},
+            (
+                "enlace-navegacion"
+                if mostrar_etl
+                else "enlace-navegacion activo"
+            ),
+            (
+                "enlace-navegacion activo"
+                if mostrar_etl
+                else "enlace-navegacion"
+            ),
+        )
+
+    @app.callback(
         Output(
             "kpi-sedes-totales",
             "children",

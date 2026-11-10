@@ -10,13 +10,13 @@ python run.py
 
 Abre http://localhost:8050
 
-## Panel de proceso ETL
+## Dashboard y área de proceso ETL
 
-El panel **Proceso ETL** muestra los pasos ejecutados al cargar la fuente
-incluida y permite subir un archivo CSV compatible para volver a procesar
-los datos en la sesión actual. El histórico registra también los intentos
-fallidos; se muestran por separado los errores y el mapeo de campos desde
-la fuente hasta el conjunto transformado.
+El dashboard y el área **Proceso ETL** se navegan por separado desde el menú
+principal (`/` y `/etl`). Esta última permite subir un archivo CSV compatible
+y revisar el estado de la carga, los errores, el historial de ejecuciones y
+la trazabilidad del mapeo de campos. La administración de usuarios también
+se encuentra en su ruta independiente (`/admin`).
 
 La carga acepta un único archivo `.csv` de hasta 10 MB. Debe conservar la
 estructura de la fuente oficial: separador `;`, codificación UTF-8 y
@@ -25,7 +25,9 @@ servicios codificados. Si la lectura o validación falla, el dashboard
 mantiene el último conjunto de datos válido. Una carga correcta actualiza
 los indicadores, filtros, mapa, tablas y exportaciones; el archivo cargado
 permanece solo en el estado de la sesión del navegador y no se guarda en el
-servidor.
+servidor. El historial y los datos procesados se conservan al navegar entre
+el dashboard y ETL dentro de la misma sesión, pero no se persisten al cerrar
+o recargar la pestaña.
 
 Las coordenadas se asocian mediante una coincidencia única del nombre de la
 sede y su dirección normalizados, no por el orden de las filas ni por la

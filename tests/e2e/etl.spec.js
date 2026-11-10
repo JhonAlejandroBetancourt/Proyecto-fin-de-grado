@@ -22,9 +22,13 @@ async function cargarCsv(page, nombre, contenido) {
 
 test("12 - Carga CSV y trazabilidad del proceso ETL", async ({ page, evidence }) => {
   await openDashboard(page, evidence);
+  await page.getByRole("link", { name: "Proceso ETL" }).click();
+  await expect(page).toHaveURL(/\/etl\/?$/);
   const historico = page.locator("#etl-tabla-historico");
   const mapeo = page.locator("#etl-tabla-mapeo");
 
+  await expect(page.locator("#dashboard-page")).toBeHidden();
+  await expect(page.locator("#etl-page")).toBeVisible();
   await expect(historico).toContainText("Extracción");
   await expect(mapeo).toContainText("Campo origen");
   await expect(page.locator("#etl-estado")).toContainText("SHA-256");
@@ -44,8 +48,15 @@ test("12 - Carga CSV y trazabilidad del proceso ETL", async ({ page, evidence })
   await expect(page.locator("#mapa-oferta-quirurgica")).toContainText(
     "coinciden de forma única",
   );
+  await page.getByRole("link", { name: "Dashboard" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("#dashboard-page")).toBeVisible();
+  await expect(page.locator("#kpi-sedes-oferta")).toHaveText("1");
+  await expect(page.locator("#mapa-oferta-quirurgica")).toBeVisible();
+  await page.getByRole("link", { name: "Proceso ETL" }).click();
+  await expect(page.locator("#etl-page")).toBeVisible();
   evidence.addStep(
-    "Cargar un CSV nuevo y comprobar que la asociación segura no reutiliza coordenadas de otras sedes.",
+    "Cargar un CSV, navegar al dashboard y comprobar que los resultados se mantienen entre vistas.",
   );
   await captureEvidence(
     page,
@@ -71,4 +82,7 @@ test("12 - Carga CSV y trazabilidad del proceso ETL", async ({ page, evidence })
     "El archivo inválido informa el error, se conserva el último dataset válido y el historial registra el intento.",
     page.locator(".panel-etl"),
   );
+  await page.goto("/etl");
+  await expect(page.locator("#etl-page")).toBeVisible();
+  await expect(page.locator("#nav-etl")).toHaveClass(/activo/);
 });
