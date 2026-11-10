@@ -134,6 +134,68 @@ def test_supabase_admin_request_uses_bearer_service_key(monkeypatch):
     }
 
 
+@pytest.mark.parametrize(
+    ("key_name", "key_value", "admin"),
+    [
+        (
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "sb_secret_test-key",
+            True,
+        ),
+        (
+            "SUPABASE_ANON_KEY",
+            "sb_publishable_test-key",
+            False,
+        ),
+    ],
+)
+def test_supabase_modern_api_keys_are_sent_only_as_apikey(
+    monkeypatch,
+    key_name,
+    key_value,
+    admin,
+):
+    _set_auth_environment(monkeypatch)
+    monkeypatch.setenv(key_name, key_value)
+    settings = auth.load_auth_settings()
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(request, timeout):
+        captured["authorization"] = request.get_header(
+            "Authorization"
+        )
+        captured["api_key"] = request.get_header("Apikey")
+        return Response()
+
+    monkeypatch.setattr(auth, "urlopen", fake_urlopen)
+
+    path = (
+        "/auth/v1/admin/users"
+        if admin
+        else "/auth/v1/recover"
+    )
+    auth._supabase_request(
+        settings,
+        path,
+        admin=admin,
+    )
+
+    assert captured == {
+        "authorization": None,
+        "api_key": key_value,
+    }
+
+
 def test_auth_enabled_requires_an_origin_only_base_url(monkeypatch):
     _set_auth_environment(monkeypatch)
     monkeypatch.setenv(

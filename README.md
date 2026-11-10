@@ -51,8 +51,10 @@ la aplicación falla al arrancar si falta su configuración; no publiques la
 rama de autenticación hasta cargar estas variables en las opciones de
 entorno de Vercel:
 
-- `SUPABASE_URL` y `SUPABASE_ANON_KEY` del proyecto.
-- `SUPABASE_SERVICE_ROLE_KEY`, solo del lado servidor; nunca la expongas al
+- `SUPABASE_URL` y `SUPABASE_ANON_KEY` del proyecto. La clave puede ser la
+  publishable `sb_publishable_...` o la heredada `anon`.
+- `SUPABASE_SERVICE_ROLE_KEY`, solo del lado servidor. Puedes usar la nueva
+  clave `sb_secret_...` o la heredada `service_role`; nunca la expongas al
   navegador ni la guardes en el repositorio.
 - `QUIRON_BASE_URL`, el origen público exacto, por ejemplo
   `https://tu-dominio.vercel.app`.
@@ -80,6 +82,10 @@ antes de integrar la rama en `main`. El navegador usa el cliente oficial
 Supabase JS, fijado a una versión e integrity hash; la cookie de acceso es
 `HttpOnly`, y el SDK conserva la sesión de renovación solo en el
 `sessionStorage` de esa pestaña.
+
+Las claves modernas `sb_publishable_...` y `sb_secret_...` se envían solo en
+el encabezado `apikey`, como requiere Supabase. Las claves heredadas `anon` y
+`service_role` también se envían como `Authorization: Bearer`.
 
 ## Pruebas unitarias y cobertura
 

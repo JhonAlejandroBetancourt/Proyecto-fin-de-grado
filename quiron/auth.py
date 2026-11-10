@@ -175,9 +175,12 @@ def _supabase_request(
     )
     headers = {
         "apikey": api_key,
-        "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     }
+    if not api_key.startswith(
+        ("sb_publishable_", "sb_secret_")
+    ):
+        headers["Authorization"] = f"Bearer {api_key}"
     data = None
     if body is not None:
         data = json.dumps(body).encode("utf-8")
