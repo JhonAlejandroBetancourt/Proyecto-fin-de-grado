@@ -1701,6 +1701,14 @@ td {
   box-shadow: var(--sombra);
 }
 
+.tarjeta-etl .dash-table-container {
+  width: 100%;
+}
+
+.tarjeta-etl .dash-spreadsheet-container {
+  overflow-x: auto;
+}
+
 @media (max-width: 760px) {
   .acciones-autenticacion {
     position: relative;

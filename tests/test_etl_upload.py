@@ -176,3 +176,23 @@ def test_upload_valido_y_esquema_invalido_conservan_estado_etl(
         1,
         2,
     }
+    assert respuesta_invalida[
+        "etl-tabla-mapeo"
+    ]["data"] == mapeos
+
+    respuesta_extension_invalida = _callback_response(
+        dash_app,
+        "fuente-no-csv.txt",
+        csv_valido,
+        previous_trace=traza_invalida,
+    )
+    historial_extension = respuesta_extension_invalida[
+        "etl-tabla-historico"
+    ]["data"]
+    assert "etl-dataset-activo" not in respuesta_extension_invalida
+    assert historial_extension[0]["ejecucion"] == 3
+    assert historial_extension[0]["orden"] == 1
+    assert historial_extension[0]["nombre"] == "Validación de archivo"
+    assert respuesta_extension_invalida[
+        "etl-tabla-mapeo"
+    ]["data"] == mapeos

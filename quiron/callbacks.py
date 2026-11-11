@@ -241,8 +241,9 @@ def _traza_error_carga(
 
     traza = TrazaETL()
     traza.registrar_error(
-        "Carga",
+        "Validación de archivo",
         mensaje,
+        fase="Extracción",
     )
     datos = traza.como_dict()
     datos.update(
@@ -291,6 +292,10 @@ def _combinar_historial_etl(
                     "orden": (
                         len(pasos_actuales) + 1
                     ),
+                    "fase": error.get(
+                        "fase",
+                        "Carga",
+                    ),
                     "nombre": error.get(
                         "paso",
                         "Error",
@@ -320,7 +325,31 @@ def _combinar_historial_etl(
     traza_actual["numero_ejecucion"] = (
         numero_ejecucion
     )
+    if not traza_actual.get("mapeos"):
+        traza_actual["mapeos"] = list(
+            traza_anterior.get("mapeos", [])
+        )
     return traza_actual
+
+
+def _historial_etl_visible(traza):
+    """Ordena la ejecución más reciente primero sin invertir sus pasos."""
+
+    def orden_seguro(valor):
+        return (
+            valor
+            if isinstance(valor, int)
+            and not isinstance(valor, bool)
+            else 0
+        )
+
+    return sorted(
+        traza.get("historial", []),
+        key=lambda paso: (
+            -orden_seguro(paso.get("ejecucion")),
+            orden_seguro(paso.get("orden")),
+        ),
+    )
 
 
 def _tabla_activa(
@@ -763,8 +792,8 @@ def registrar_callbacks(
             return (
                 no_update,
                 traza_error,
-                [],
-                [],
+                _historial_etl_visible(traza_error),
+                traza_error["mapeos"],
                 [_tarjeta_error("Carga", error)],
                 "etl-errores",
                 (
@@ -800,8 +829,8 @@ def registrar_callbacks(
             return (
                 no_update,
                 traza_error,
-                [],
-                [],
+                _historial_etl_visible(traza_error),
+                traza_error["mapeos"],
                 [_tarjeta_error("Carga", error)],
                 "etl-errores",
                 (
@@ -849,8 +878,8 @@ def registrar_callbacks(
             return (
                 no_update,
                 traza_error,
-                [],
-                [],
+                _historial_etl_visible(traza_error),
+                traza_error["mapeos"],
                 errores,
                 "etl-errores",
                 (
@@ -883,8 +912,8 @@ def registrar_callbacks(
             return (
                 no_update,
                 traza_error,
-                [],
-                [],
+                _historial_etl_visible(traza_error),
+                traza_error["mapeos"],
                 [_tarjeta_error("Carga", error)],
                 "etl-errores",
                 (
@@ -917,8 +946,19 @@ def registrar_callbacks(
             traza_anterior,
         )
 
-        historico = traza_dict["historial"]
+        historico = _historial_etl_visible(
+            traza_dict
+        )
         mapeo = traza_dict["mapeos"]
+        numero_ejecucion = traza_dict[
+            "numero_ejecucion"
+        ]
+        duracion_total_ms = float(
+            traza_dict.get(
+                "duracion_total_ms",
+                0.0,
+            )
+        )
 
         if not resultado.exito:
             errores = [
@@ -932,10 +972,10 @@ def registrar_callbacks(
             ]
 
             estado = (
-                "El ETL de "
-                f"'{resultado.nombre_fuente}' "
-                "falló. Se mantiene el conjunto "
-                "de datos vigente."
+                f"Ejecución {numero_ejecucion} de "
+                f"'{resultado.nombre_fuente}' fallida "
+                f"({duracion_total_ms:.2f} ms). Se mantiene "
+                "el último conjunto de datos válido."
             )
 
             return (
@@ -964,6 +1004,8 @@ def registrar_callbacks(
         )
 
         estado = (
+            f"Ejecución {numero_ejecucion} completada en "
+            f"{duracion_total_ms:.2f} ms. "
             "Conjunto de datos activo: "
             f"'{resultado.nombre_fuente}' "
             f"({len(resultado.tabla)} registros, "

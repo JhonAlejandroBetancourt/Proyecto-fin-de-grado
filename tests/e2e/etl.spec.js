@@ -30,6 +30,12 @@ test("12 - Carga CSV y trazabilidad del proceso ETL", async ({ page, evidence })
   await expect(page.locator("#dashboard-page")).toBeHidden();
   await expect(page.locator("#etl-page")).toBeVisible();
   await expect(historico).toContainText("Extracción");
+  await expect(historico).toContainText("Limpieza de registros");
+  await expect(historico).toContainText(
+    "Transformación de formato ancho a largo",
+  );
+  await expect(historico).toContainText("Cruce de coordenadas");
+  await expect(historico).toContainText("Filas descartadas");
   await expect(mapeo).toContainText("Campo origen");
   await expect(page.locator("#etl-estado")).toContainText("SHA-256");
   evidence.addStep(
@@ -42,9 +48,9 @@ test("12 - Carga CSV y trazabilidad del proceso ETL", async ({ page, evidence })
     { timeout: 30000 },
   );
   await expect(page.locator("#kpi-sedes-oferta")).toHaveText("1");
-  await expect(historico).toContainText("Geocodificación");
-  await expect(mapeo).toContainText("nombre de sede y dirección normalizados");
-  await expect(historico).toContainText("1 sin coincidencia segura");
+  await expect(historico).toContainText("Cruce de coordenadas");
+  await expect(mapeo).toContainText("nombre y dirección normalizados");
+  await expect(historico).toContainText("sin coincidencia segura");
   await expect(page.locator("#mapa-oferta-quirurgica")).toContainText(
     "coinciden de forma única",
   );

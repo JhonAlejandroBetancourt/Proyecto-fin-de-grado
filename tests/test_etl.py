@@ -162,15 +162,168 @@ def test_etl_asocia_coordenadas_si_solo_cambia_la_huella():
         "coordenada_valida"
     ].sum()
     assert any(
-        paso.nivel is NivelTraza.EXITO
+        paso.nivel is NivelTraza.ADVERTENCIA
         for paso in resultado.traza.pasos
-        if paso.nombre == "Geocodificación"
+        if paso.nombre == "Cruce de coordenadas"
     )
-    assert "todas las sedes quirúrgicas" in next(
+    assert "sin ubicación" in next(
         paso.mensaje
         for paso in resultado.traza.pasos
-        if paso.nombre == "Geocodificación"
+        if paso.nombre == "Cruce de coordenadas"
     )
+
+
+def test_etl_registra_limpieza_y_metricas_de_cada_etapa():
+    """La traza expone todas las etapas y las filas descartadas."""
+
+    contenido = (
+        "SEDE -NOMBRE;DIRECCION;TELEFONO;"
+        "CORREO ELECTRÓNICO;NATURALEZA;"
+        "TIPO DE PRESTADOR;213 - CIRUGÍA PLÁSTICA;"
+        "Unnamed: 7\n"
+        "  Clínica   Limpia  ; Calle   1 ;123;"
+        "prueba@example.com;Privada;IPS;X;\n"
+        " ;Calle 2;456;otra@example.com;Privada;IPS;X;\n"
+        "Sede sin marca;Calle 3;789;otra@example.com;"
+        "Privada;IPS;SI;\n"
+    ).encode("utf-8")
+
+    resultado = ejecutar_etl(
+        origen=contenido,
+        nombre_fuente="limpieza.csv",
+    )
+
+    assert resultado.exito is True
+    assert resultado.tabla is not None
+    assert resultado.tabla["sede"].tolist() == [
+        "Clínica Limpia",
+    ]
+
+    pasos = {
+        paso.nombre: paso
+        for paso in resultado.traza.pasos
+    }
+    assert {
+        "Lectura del CSV",
+        "Normalización de encabezados",
+        "Validación de estructura",
+        "Limpieza de registros",
+        "Detección de columnas de servicio",
+        "Transformación de formato ancho a largo",
+        "Lectura de referencia geográfica",
+        "Validación de referencia geográfica",
+        "Normalización y control de coordenadas",
+        "Normalización y depuración de identidades",
+        "Cruce de coordenadas",
+        "Control de integridad de la oferta",
+        "Carga del conjunto transformado",
+    }.issubset(pasos)
+
+    limpieza = pasos["Limpieza de registros"]
+    assert limpieza.filas_entrada == 3
+    assert limpieza.filas_salida == 2
+    assert limpieza.filas_eliminadas == 1
+    assert pasos["Normalización de encabezados"].columnas_entrada == 8
+    assert pasos["Normalización de encabezados"].columnas_salida == 7
+    transformacion = pasos[
+        "Transformación de formato ancho a largo"
+    ]
+    assert transformacion.filas_entrada == 2
+    assert transformacion.filas_salida == 1
+    assert transformacion.filas_eliminadas == 1
+    assert transformacion.nivel is NivelTraza.ADVERTENCIA
+    assert "SI" in transformacion.detalle
+
+
+def test_etl_asigna_el_error_a_la_etapa_que_falla():
+    """Un esquema inválido identifica la validación que detuvo el ETL."""
+
+    resultado = ejecutar_etl(
+        origen=b"columna_a;columna_b\n1;2\n",
+        nombre_fuente="esquema-invalido.csv",
+    )
+
+    assert resultado.exito is False
+    paso_error = next(
+        paso
+        for paso in resultado.traza.pasos
+        if paso.nivel is NivelTraza.ERROR
+    )
+    assert paso_error.nombre == "Validación de estructura"
+    assert paso_error.fase == "Validación"
+
+
+def test_etl_asigna_errores_de_lectura_a_extraccion():
+    """Los errores de sintaxis CSV quedan atribuidos a la lectura."""
+
+    resultado = ejecutar_etl(
+        origen=b'"unterminated field\n',
+        nombre_fuente="malformado.csv",
+    )
+
+    assert resultado.exito is False
+    paso_error = next(
+        paso
+        for paso in resultado.traza.pasos
+        if paso.nivel is NivelTraza.ERROR
+    )
+    assert paso_error.nombre == "Lectura del CSV"
+    assert paso_error.fase == "Extracción"
+
+
+def test_etl_rechaza_encabezados_duplicados():
+    """Un duplicado no debe ocultarse por la renominación de pandas."""
+
+    resultado = ejecutar_etl(
+        origen=(
+            "SEDE -NOMBRE;SEDE -NOMBRE;DIRECCION;TELEFONO;"
+            "CORREO ELECTRÓNICO;NATURALEZA;TIPO DE PRESTADOR;"
+            "213 - CIRUGÍA PLÁSTICA\n"
+            "Clínica;Clínica alterna;Calle 1;123;"
+            "prueba@example.com;Privada;IPS;X\n"
+        ).encode("utf-8"),
+        nombre_fuente="encabezados-duplicados.csv",
+    )
+
+    assert resultado.exito is False
+    paso_error = next(
+        paso
+        for paso in resultado.traza.pasos
+        if paso.nivel is NivelTraza.ERROR
+    )
+    assert paso_error.nombre == "Normalización de encabezados"
+    assert "duplicados" in paso_error.mensaje
+
+
+def test_etl_reporta_salida_vacia_si_no_hay_marcas_reconocidas():
+    """El ETL explica por qué no pudo crear registros de servicio."""
+
+    resultado = ejecutar_etl(
+        origen=(
+            "SEDE -NOMBRE;DIRECCION;TELEFONO;"
+            "CORREO ELECTRÓNICO;NATURALEZA;"
+            "TIPO DE PRESTADOR;213 - CIRUGÍA PLÁSTICA\n"
+            "Clínica sin marca;Calle 1;123;"
+            "prueba@example.com;Privada;IPS;SI\n"
+        ).encode("utf-8"),
+        nombre_fuente="sin-marcas.csv",
+    )
+
+    assert resultado.exito is False
+    transformacion = next(
+        paso
+        for paso in resultado.traza.pasos
+        if paso.nombre == "Transformación de formato ancho a largo"
+    )
+    assert transformacion.filas_salida == 0
+    assert transformacion.nivel is NivelTraza.ADVERTENCIA
+    paso_error = next(
+        paso
+        for paso in resultado.traza.pasos
+        if paso.nivel is NivelTraza.ERROR
+    )
+    assert paso_error.nombre == "Control de integridad de la oferta"
+    assert "no produjo registros de servicio" in paso_error.mensaje
 
 
 def test_etl_asocia_coordenadas_independientemente_del_orden():

@@ -47,12 +47,20 @@ class PasoETL:
     marca_tiempo: str
     duracion_ms: float
     filas: int | None = None
+    fase: str = "Proceso"
+    filas_entrada: int | None = None
+    filas_salida: int | None = None
+    filas_eliminadas: int | None = None
+    columnas_entrada: int | None = None
+    columnas_salida: int | None = None
+    detalle: str | None = None
 
     def como_dict(self):
         """Serializa el paso a un diccionario simple."""
 
         return {
             "orden": self.orden,
+            "fase": self.fase,
             "nombre": self.nombre,
             "nivel": self.nivel.value,
             "mensaje": self.mensaje,
@@ -62,6 +70,12 @@ class PasoETL:
                 2,
             ),
             "filas": self.filas,
+            "filas_entrada": self.filas_entrada,
+            "filas_salida": self.filas_salida,
+            "filas_eliminadas": self.filas_eliminadas,
+            "columnas_entrada": self.columnas_entrada,
+            "columnas_salida": self.columnas_salida,
+            "detalle": self.detalle,
         }
 
 
@@ -108,7 +122,6 @@ class TrazaETL:
 
         self._reloj = time.perf_counter
         self._inicio = self._reloj()
-        self._ultimo = self._inicio
 
     def _ahora_legible(self):
         return datetime.now(
@@ -123,14 +136,16 @@ class TrazaETL:
         mensaje,
         nivel=NivelTraza.INFO,
         filas=None,
+        fase="Proceso",
+        filas_entrada=None,
+        filas_salida=None,
+        filas_eliminadas=None,
+        columnas_entrada=None,
+        columnas_salida=None,
+        detalle=None,
+        duracion_ms=None,
     ):
-        """Registra un paso y mide su duración desde el paso anterior."""
-
-        ahora = self._reloj()
-        duracion_ms = (
-            ahora - self._ultimo
-        ) * 1000.0
-        self._ultimo = ahora
+        """Registra un paso y sus métricas de entrada y salida."""
 
         paso = PasoETL(
             orden=len(self.pasos) + 1,
@@ -138,8 +153,23 @@ class TrazaETL:
             nivel=nivel,
             mensaje=mensaje,
             marca_tiempo=self._ahora_legible(),
-            duracion_ms=duracion_ms,
-            filas=filas,
+            duracion_ms=(
+                max(0.0, float(duracion_ms))
+                if duracion_ms is not None
+                else 0.0
+            ),
+            filas=(
+                filas
+                if filas is not None
+                else filas_salida
+            ),
+            fase=fase,
+            filas_entrada=filas_entrada,
+            filas_salida=filas_salida,
+            filas_eliminadas=filas_eliminadas,
+            columnas_entrada=columnas_entrada,
+            columnas_salida=columnas_salida,
+            detalle=detalle,
         )
 
         self.pasos.append(paso)
@@ -147,6 +177,7 @@ class TrazaETL:
         if nivel is NivelTraza.ERROR:
             self.errores.append(
                 {
+                    "fase": fase,
                     "paso": nombre,
                     "mensaje": mensaje,
                     "marca_tiempo": (
@@ -161,6 +192,7 @@ class TrazaETL:
         self,
         nombre,
         mensaje,
+        fase="Validación",
     ):
         """Atajo para registrar un paso con nivel de error."""
 
@@ -168,6 +200,7 @@ class TrazaETL:
             nombre,
             mensaje,
             nivel=NivelTraza.ERROR,
+            fase=fase,
         )
 
     def mapear(

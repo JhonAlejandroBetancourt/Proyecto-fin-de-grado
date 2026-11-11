@@ -1372,86 +1372,124 @@ def _tabla_etl(
             )
             if descripcion
             else None,
-            dash_table.DataTable(
-                id=identificador,
-                data=data or [],
-                columns=columnas,
-                style_as_list_view=True,
-                page_action="native",
-                page_size=20,
-                sort_action="native",
-                style_table={
-                    "overflowX": "auto",
-                    "minWidth": "100%",
-                },
-                style_header={
-                    "backgroundColor": "#330968",
-                    "color": "#FFFFFF",
-                    "fontWeight": "600",
-                    "textAlign": "left",
-                    "border": "none",
-                },
-                style_cell={
-                    "padding": "10px 12px",
-                    "fontFamily": (
-                        "Segoe UI, Arial, "
-                        "sans-serif"
-                    ),
-                    "fontSize": "13px",
-                    "textAlign": "left",
-                    "whiteSpace": "normal",
-                    "height": "auto",
-                    "minWidth": "100px",
-                    "border": "none",
-                    "borderBottom": (
-                        "1px solid #E4DEF2"
-                    ),
-                },
-                style_data={
-                    "backgroundColor": "#FFFFFF",
-                    "color": "#231942",
-                },
-                style_data_conditional=[
-                    {
-                        "if": {
-                            "row_index": "odd",
-                        },
-                        "backgroundColor": (
-                            "#F5F3FA"
+            dcc.Loading(
+                type="circle",
+                delay_show=250,
+                children=dash_table.DataTable(
+                    id=identificador,
+                    data=data or [],
+                    columns=columnas,
+                    style_as_list_view=True,
+                    page_action="native",
+                    page_size=20,
+                    sort_action="native",
+                    style_table={
+                        "overflowX": "auto",
+                        "minWidth": "100%",
+                    },
+                    style_header={
+                        "backgroundColor": "#330968",
+                        "color": "#FFFFFF",
+                        "fontWeight": "600",
+                        "textAlign": "left",
+                        "border": "none",
+                    },
+                    style_cell={
+                        "padding": "10px 12px",
+                        "fontFamily": (
+                            "Segoe UI, Arial, "
+                            "sans-serif"
+                        ),
+                        "fontSize": "13px",
+                        "textAlign": "left",
+                        "whiteSpace": "normal",
+                        "height": "auto",
+                        "minWidth": "100px",
+                        "border": "none",
+                        "borderBottom": (
+                            "1px solid #E4DEF2"
                         ),
                     },
-                    {
-                        "if": {
-                            "filter_query": (
-                                "{nivel} = error"
-                            ),
-                            "column_id": "nivel",
+                    style_cell_conditional=[
+                        {
+                            "if": {
+                                "column_id": "fase",
+                            },
+                            "minWidth": "135px",
                         },
-                        "color": "#B00020",
-                        "fontWeight": "600",
-                    },
-                    {
-                        "if": {
-                            "filter_query": (
-                                "{nivel} = "
-                                "advertencia"
-                            ),
-                            "column_id": "nivel",
+                        {
+                            "if": {
+                                "column_id": "nombre",
+                            },
+                            "minWidth": "210px",
                         },
-                        "color": "#9A6700",
-                        "fontWeight": "600",
-                    },
-                    {
-                        "if": {
-                            "filter_query": (
-                                "{nivel} = exito"
-                            ),
-                            "column_id": "nivel",
+                        {
+                            "if": {
+                                "column_id": "mensaje",
+                            },
+                            "minWidth": "300px",
+                            "maxWidth": "420px",
                         },
-                        "color": "#1B7A3D",
-                        "fontWeight": "600",
+                        {
+                            "if": {
+                                "column_id": "detalle",
+                            },
+                            "minWidth": "260px",
+                            "maxWidth": "380px",
+                        },
+                        {
+                            "if": {
+                                "column_id": "marca_tiempo",
+                            },
+                            "minWidth": "145px",
+                        },
+                    ],
+                    style_data={
+                        "backgroundColor": "#FFFFFF",
+                        "color": "#231942",
                     },
-                ],
+                    style_data_conditional=[
+                        {
+                            "if": {
+                                "row_index": "odd",
+                            },
+                            "backgroundColor": (
+                                "#F5F3FA"
+                            ),
+                        },
+                        {
+                            "if": {
+                                "filter_query": (
+                                    "{nivel} = error"
+                                ),
+                                "column_id": "nivel",
+                            },
+                            "color": "#B00020",
+                            "fontWeight": "600",
+                        },
+                        {
+                            "if": {
+                                "filter_query": (
+                                    "{nivel} = "
+                                    "advertencia"
+                                ),
+                                "column_id": "nivel",
+                            },
+                            "color": "#9A6700",
+                            "fontWeight": "600",
+                        },
+                        {
+                            "if": {
+                                "filter_query": (
+                                    "{nivel} = exito"
+                                ),
+                                "column_id": "nivel",
+                            },
+                            "color": "#1B7A3D",
+                            "fontWeight": "600",
+                        },
+                    ],
+                ),
             ),
         ],
     )
@@ -1481,6 +1519,14 @@ def _panel_etl(
         if huella_inicial
         else ""
     )
+    duracion_inicial = traza_etl.get(
+        "duracion_total_ms"
+    )
+    sufijo_duracion = (
+        f" · Duración total: {duracion_inicial:.2f} ms"
+        if isinstance(duracion_inicial, (int, float))
+        else ""
+    )
 
     return html.Div(
         className="vista-etl",
@@ -1496,9 +1542,10 @@ def _panel_etl(
                             ),
                             html.P(
                                 (
-                                    "Carga y revisa cada ejecución "
-                                    "de extracción, transformación "
-                                    "y carga en un espacio dedicado."
+                                    "Sigue extracción, validación, "
+                                    "limpieza, transformación, "
+                                    "enriquecimiento y carga con "
+                                    "métricas y trazabilidad por etapa."
                                 ),
                                 className="descripcion-seccion",
                             ),
@@ -1571,7 +1618,8 @@ def _panel_etl(
                             "Conjunto de datos activo: "
                             f"{fuente_inicial} "
                             "(incluido en el proyecto)"
-                            f"{sufijo_huella}."
+                            f"{sufijo_huella}"
+                            f"{sufijo_duracion}."
                         ),
                         **{
                             "aria-live": "polite",
@@ -1603,11 +1651,15 @@ def _panel_etl(
                                 "id": "orden",
                             },
                             {
+                                "name": "Fase",
+                                "id": "fase",
+                            },
+                            {
                                 "name": "Paso",
                                 "id": "nombre",
                             },
                             {
-                                "name": "Nivel",
+                                "name": "Estado",
                                 "id": "nivel",
                             },
                             {
@@ -1619,12 +1671,32 @@ def _panel_etl(
                                 "id": "marca_tiempo",
                             },
                             {
-                                "name": "ms",
+                                "name": "Duración (ms)",
                                 "id": "duracion_ms",
                             },
                             {
-                                "name": "Filas",
-                                "id": "filas",
+                                "name": "Filas antes",
+                                "id": "filas_entrada",
+                            },
+                            {
+                                "name": "Filas después",
+                                "id": "filas_salida",
+                            },
+                            {
+                                "name": "Filas descartadas",
+                                "id": "filas_eliminadas",
+                            },
+                            {
+                                "name": "Columnas antes",
+                                "id": "columnas_entrada",
+                            },
+                            {
+                                "name": "Columnas después",
+                                "id": "columnas_salida",
+                            },
+                            {
+                                "name": "Detalle",
+                                "id": "detalle",
                             },
                         ],
                         data=traza_etl.get(
@@ -1641,11 +1713,10 @@ def _panel_etl(
                             ],
                         ),
                         descripcion=(
-                            "Consulta los pasos registrados para "
-                            "cada carga, incluidos tiempos, "
-                            "volumen de filas, advertencias y "
-                            "errores. El historial se conserva "
-                            "durante la sesión del navegador."
+                            "Cada etapa informa su estado, duración, "
+                            "registros y columnas antes y después, "
+                            "descartes y detalle. También se registran "
+                            "las etapas fallidas y sus causas."
                         ),
                     ),
                     _tabla_etl(

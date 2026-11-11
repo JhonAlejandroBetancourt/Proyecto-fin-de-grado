@@ -15,8 +15,14 @@ Abre http://localhost:8050
 El dashboard y el área **Proceso ETL** se navegan por separado desde el menú
 principal (`/` y `/etl`). Esta última permite subir un archivo CSV compatible
 y revisar el estado de la carga, los errores, el historial de ejecuciones y
-la trazabilidad del mapeo de campos. La administración de usuarios también
-se encuentra en su ruta independiente (`/admin`).
+la trazabilidad del mapeo de campos. Cada ejecución expone lectura y parseo,
+normalización de encabezados, validación de esquema, limpieza de filas,
+transformación de formato ancho a largo, depuración de identidades,
+validación y cruce de coordenadas, controles de integridad y preparación
+del conjunto de salida. El historial incluye el estado, duración, filas y
+columnas de entrada y salida, filas descartadas y el detalle de cada etapa.
+La administración de usuarios también se encuentra en su ruta independiente
+(`/admin`).
 
 La carga acepta un único archivo `.csv` de hasta 10 MB. Debe conservar la
 estructura de la fuente oficial: separador `;`, codificación UTF-8 y
