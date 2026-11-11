@@ -16,6 +16,7 @@ conjunto de datos vigente y mostrar los errores sin interrumpirse.
 
 import hashlib
 from dataclasses import dataclass
+from time import perf_counter
 
 import pandas as pd
 
@@ -123,6 +124,26 @@ def _registrar_mapeo_campos(
 
     filas = len(tabla)
 
+    traza.mapear(
+        campo_origen="Encabezados del CSV",
+        campo_destino="Encabezados normalizados",
+        transformacion=(
+            "Eliminación de saltos de línea y compactación "
+            "de espacios; descarte de columnas Unnamed"
+        ),
+        filas=filas,
+    )
+
+    traza.mapear(
+        campo_origen="Campos de texto del CSV",
+        campo_destino="Campos de texto limpios",
+        transformacion=(
+            "Recorte de espacios y normalización de saltos "
+            "de línea; se descartan filas sin nombre de sede"
+        ),
+        filas=filas,
+    )
+
     for origen, destino in (
         MAPEO_COLUMNAS_BASE.items()
     ):
@@ -177,9 +198,9 @@ def _registrar_mapeo_campos(
             "latitud, longitud, coordenada_valida"
         ),
         transformacion=(
-            "Coincidencia única por nombre de sede "
-            "y dirección normalizados; independiente "
-            "del orden de las filas"
+            "Validación de coordenadas y cruce por coincidencia "
+            "única de nombre y dirección normalizados; las claves "
+            "vacías o ambiguas no reciben coordenadas"
         ),
         filas=filas,
     )
@@ -216,135 +237,185 @@ def ejecutar_etl(
     )
 
     huella = None
-    nombre = (
-        nombre_fuente
-        or "archivo cargado"
-    )
+    nombre = nombre_fuente or "archivo cargado"
+    etapa_actual = {
+        "fase": "Extracción",
+        "nombre": "Lectura de la fuente",
+    }
+    error_reportado = False
+
+    def observar_etapa(evento):
+        nonlocal error_reportado
+        etapa_actual["fase"] = evento.get(
+            "fase",
+            etapa_actual["fase"],
+        )
+        etapa_actual["nombre"] = evento.get(
+            "nombre",
+            etapa_actual["nombre"],
+        )
+        if evento.get("estado") == "en_progreso":
+            return
+
+        nivel = NivelTraza(
+            evento.get(
+                "nivel",
+                NivelTraza.INFO.value,
+            )
+        )
+        if nivel is NivelTraza.ERROR:
+            error_reportado = True
+        traza.registrar(
+            nombre=etapa_actual["nombre"],
+            fase=etapa_actual["fase"],
+            mensaje=evento.get(
+                "mensaje",
+                "Etapa completada sin mensaje.",
+            ),
+            nivel=nivel,
+            filas=evento.get("filas_salida"),
+            filas_entrada=evento.get("filas_entrada"),
+            filas_salida=evento.get("filas_salida"),
+            filas_eliminadas=evento.get("filas_eliminadas"),
+            columnas_entrada=evento.get("columnas_entrada"),
+            columnas_salida=evento.get("columnas_salida"),
+            detalle=evento.get("detalle"),
+            duracion_ms=evento.get("duracion_ms"),
+        )
 
     try:
-        contenido, nombre = _normalizar_a_bytes(
-            origen,
+        etapa_actual.update(
+            fase="Extracción",
+            nombre="Lectura de la fuente",
         )
-
+        inicio_lectura = perf_counter()
+        contenido, nombre = _normalizar_a_bytes(origen)
         if nombre_fuente:
             nombre = nombre_fuente
-
-        huella = _calcular_huella(contenido)
-
         traza.registrar(
-            "Extracción",
-            "Lectura del contenido de "
-            f"'{nombre}' ({len(contenido)} bytes). "
-            f"Huella SHA-256: {huella[:12]}…",
-            nivel=NivelTraza.INFO,
+            nombre="Lectura del contenido",
+            fase="Extracción",
+            mensaje=(
+                f"Se recibieron {len(contenido)} bytes desde "
+                f"'{nombre}'."
+            ),
+            nivel=NivelTraza.EXITO,
+            detalle="La fuente se procesa en memoria; no se guarda en disco.",
+            duracion_ms=(
+                (perf_counter() - inicio_lectura)
+                * 1000.0
+            ),
         )
 
+        etapa_actual.update(
+            fase="Control",
+            nombre="Huella e identificación de fuente",
+        )
+        inicio_huella = perf_counter()
+        huella = _calcular_huella(contenido)
         huella_incluida = _calcular_huella(
             ARCHIVO_CIRUGIA_PLASTICA.read_bytes()
         )
-        misma_fuente_binaria = (
-            huella == huella_incluida
+        misma_fuente_binaria = huella == huella_incluida
+        traza.registrar(
+            nombre="Huella e identificación de fuente",
+            fase="Control",
+            mensaje=(
+                "La fuente coincide byte a byte con la incluida."
+                if misma_fuente_binaria
+                else (
+                    "La fuente difiere de la incluida; la asociación "
+                    "geográfica dependerá de coincidencias únicas."
+                )
+            ),
+            nivel=(
+                NivelTraza.EXITO
+                if misma_fuente_binaria
+                else NivelTraza.INFO
+            ),
+            detalle=f"SHA-256: {huella}",
+            duracion_ms=(
+                (perf_counter() - inicio_huella)
+                * 1000.0
+            ),
         )
 
         tabla = cargar_oferta_con_coordenadas(
             origen=contenido,
             nombre_fuente=nombre,
+            observador=observar_etapa,
         )
 
-        sedes_quirurgicas = tabla.loc[
-            tabla["es_quirurgico"]
-            .fillna(False)
-            .astype(bool)
-        ].drop_duplicates(
-            subset=["sede_id"]
+        etapa_actual.update(
+            fase="Transformación",
+            nombre="Trazabilidad de mapeo",
         )
-        sedes_asociadas = int(
-            sedes_quirurgicas[
-                "direccion_normalizada"
-            ].notna().sum()
-        )
-        sedes_totales = len(sedes_quirurgicas)
-        sedes_con_coordenadas = int(
-            sedes_quirurgicas[
-                "coordenada_valida"
-            ].fillna(False).astype(bool).sum()
-        )
-
-        if misma_fuente_binaria:
-            mensaje_geocodificacion = (
-                f"Se asociaron {sedes_asociadas} de "
-                f"{sedes_totales} sedes quirúrgicas por "
-                "coincidencia única de nombre y dirección; "
-                f"{sedes_con_coordenadas} tienen "
-                "coordenadas válidas."
-            )
-            nivel_geocodificacion = NivelTraza.EXITO
-        else:
-            sedes_sin_coincidencia = (
-                sedes_totales - sedes_asociadas
-            )
-            if sedes_sin_coincidencia:
-                mensaje_geocodificacion = (
-                    "La huella del archivo difiere de la "
-                    "fuente original. Se asociaron "
-                    f"{sedes_asociadas} de {sedes_totales} "
-                    "sedes quirúrgicas solo mediante "
-                    "coincidencia única de nombre y "
-                    "dirección; "
-                    f"{sedes_sin_coincidencia} sin "
-                    "coincidencia segura; "
-                    f"{sedes_con_coordenadas} tienen "
-                    "coordenadas válidas."
-                )
-                nivel_geocodificacion = (
-                    NivelTraza.ADVERTENCIA
-                )
-            else:
-                mensaje_geocodificacion = (
-                    "Aunque la huella del archivo difiere, "
-                    "se asociaron todas las sedes quirúrgicas "
-                    "mediante coincidencia única de nombre y "
-                    "dirección; "
-                    f"{sedes_con_coordenadas} tienen "
-                    "coordenadas válidas."
-                )
-                nivel_geocodificacion = NivelTraza.EXITO
-
-        traza.registrar(
-            "Geocodificación",
-            mensaje_geocodificacion,
-            nivel=nivel_geocodificacion,
-            filas=sedes_asociadas,
-        )
-
-        traza.registrar(
-            "Transformación",
-            "Transformación de formato ancho a "
-            "largo completada.",
-            nivel=NivelTraza.EXITO,
-            filas=len(tabla),
-        )
-
+        inicio_mapeo = perf_counter()
         _registrar_mapeo_campos(
             tabla,
             traza,
         )
+        traza.registrar(
+            nombre="Trazabilidad de mapeo",
+            fase="Transformación",
+            mensaje=(
+                f"Se documentaron {len(traza.mapeos)} relaciones "
+                "entre campos de origen y resultado."
+            ),
+            nivel=NivelTraza.EXITO,
+            filas_entrada=len(tabla),
+            filas_salida=len(tabla),
+            detalle=(
+                "Incluye limpieza, renombrado, normalización, "
+                "transformación de servicios y enriquecimiento "
+                "geográfico."
+            ),
+            duracion_ms=(
+                (perf_counter() - inicio_mapeo)
+                * 1000.0
+            ),
+        )
 
-        quirurgicas = tabla[
+        quirurgicas = tabla.loc[
             tabla["es_quirurgico"]
+            .fillna(False)
+            .astype(bool)
         ]
         sedes_quirurgicas = quirurgicas[
             "sede_id"
         ].nunique()
+        coordenadas_validas = int(
+            quirurgicas[
+                "coordenada_valida"
+            ].fillna(False).astype(bool).sum()
+        )
 
+        etapa_actual.update(
+            fase="Carga",
+            nombre="Carga del conjunto transformado",
+        )
+        inicio_carga = perf_counter()
         traza.registrar(
-            "Carga",
-            "Conjunto de datos listo: "
-            f"{len(tabla)} registros, "
-            f"{sedes_quirurgicas} sedes con oferta "
-            "quirúrgica.",
+            nombre="Carga del conjunto transformado",
+            fase="Carga",
+            mensaje=(
+                f"Dataset listo: {len(tabla)} registros, "
+                f"{tabla['sede_id'].nunique()} sedes y "
+                f"{sedes_quirurgicas} sedes con oferta quirúrgica."
+            ),
             nivel=NivelTraza.EXITO,
             filas=len(tabla),
+            filas_entrada=len(tabla),
+            filas_salida=len(tabla),
+            detalle=(
+                f"{coordenadas_validas} registros quirúrgicos con "
+                "coordenadas válidas. El DataFrame queda disponible "
+                "para la aplicación."
+            ),
+            duracion_ms=(
+                (perf_counter() - inicio_carga)
+                * 1000.0
+            ),
         )
 
         return ResultadoETL(
@@ -356,11 +427,13 @@ def ejecutar_etl(
         )
 
     except Exception as error:  # noqa: BLE001
-        traza.registrar_error(
-            "Validación",
-            "El ETL no pudo completarse: "
-            f"{error}",
-        )
+        if not error_reportado:
+            traza.registrar(
+                nombre=etapa_actual["nombre"],
+                fase=etapa_actual["fase"],
+                mensaje=str(error),
+                nivel=NivelTraza.ERROR,
+            )
 
         return ResultadoETL(
             tabla=None,
