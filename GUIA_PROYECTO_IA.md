@@ -6,7 +6,15 @@
 
 **Institución:** Fundación Universitaria Compensar
 
-**Fecha de Documentación:** Octubre 2026
+**Fecha de Documentación:** Noviembre 2026
+
+> **Nota para asistentes de IA:** Este documento es la fuente de verdad técnica
+> del proyecto Quirón. Está pensado para que una IA pueda leerlo y, a partir de
+> él, redactar o actualizar la documentación formal del trabajo de grado
+> (documento Word) con precisión. Cada sección incluye nombres reales de
+> archivos, módulos, rutas, identificadores y cifras verificadas contra el
+> código fuente. Las secciones 12 (Proceso ETL Observable) y 13 (Autenticación
+> y Administración) describen las funcionalidades más recientes del sistema.
 
 ---
 
@@ -23,11 +31,13 @@
 9. [Flujo de Datos y Procesamiento](#9-flujo-de-datos-y-procesamiento)
 10. [Asistente de Voz e Inteligencia Artificial](#10-asistente-de-voz-e-inteligencia-artificial)
 11. [Sistema de Exportación de Datos](#11-sistema-de-exportación-de-datos)
-12. [Pruebas y Validación](#12-pruebas-y-validación)
-13. [Despliegue y Configuración](#13-despliegue-y-configuración)
-14. [Limitaciones y Alcance](#14-limitaciones-y-alcance)
-15. [Glosario Técnico](#15-glosario-técnico)
-16. [Referencias](#16-referencias)
+12. [Proceso ETL Observable](#12-proceso-etl-observable)
+13. [Autenticación y Administración de Usuarios](#13-autenticación-y-administración-de-usuarios)
+14. [Pruebas y Validación](#14-pruebas-y-validación)
+15. [Despliegue y Configuración](#15-despliegue-y-configuración)
+16. [Limitaciones y Alcance](#16-limitaciones-y-alcance)
+17. [Glosario Técnico](#17-glosario-técnico)
+18. [Referencias](#18-referencias)
 
 ---
 
@@ -46,6 +56,19 @@ El sistema permite a investigadores, estudiantes, profesionales de la salud y ci
 - **Visualizar geográficamente** la distribución de las IPS con oferta quirúrgica.
 - **Descargar datos** en formato CSV para análisis externos.
 - **Interactuar mediante voz** con un asistente inteligente basado en Gemini.
+- **Cargar un CSV propio y observar el proceso ETL completo** (extracción, limpieza, transformación, validación y carga) con histórico de ejecuciones, trazas de mapeo de campos, métricas por etapa y errores visibles, en un área dedicada (`/etl`).
+- **Autenticarse de forma segura** mediante Supabase Auth (correo/contraseña con MFA TOTP obligatorio y SSO con Google) y **administrar usuarios** desde un panel dedicado (`/admin`).
+
+### 1.2.1 Evolución del Sistema
+
+El sistema evolucionó de un dashboard de página única a una **aplicación multipágina** con tres áreas navegables desde el menú principal:
+
+| Ruta | Área | Contenido |
+|------|------|-----------|
+| `/` | Dashboard | Indicadores, filtros, mapa, tablas, exportación y asistente |
+| `/etl` | Proceso ETL | Carga de CSV, historial de ejecuciones, traza de mapeo, errores |
+| `/admin` | Administración | Gestión de usuarios (invitar, restablecer contraseña, eliminar) |
+| `/login` y `/logout` | Sesión | Inicio y cierre de sesión con Supabase Auth |
 
 ### 1.3 Contexto Académico
 
@@ -108,8 +131,10 @@ Desarrollar un dashboard web interactivo que permita consultar, filtrar, visuali
 3. **Crear visualizaciones geográficas** interactivas con mapas.
 4. **Implementar exportación de datos** en formato CSV con trazabilidad.
 5. **Integrar un asistente de voz** que interprete comandos en lenguaje natural.
-6. **Documentar metodológicamente** las fuentes y limitaciones del análisis.
-7. **Garantizar la calidad** mediante pruebas automatizadas.
+6. **Implementar un proceso ETL observable** que permita cargar fuentes CSV y auditar cada etapa (extracción, limpieza, transformación, validación y carga) con métricas, historial y traza de mapeo de campos.
+7. **Incorporar autenticación y control de acceso** con MFA y administración de usuarios para el despliegue en producción.
+8. **Documentar metodológicamente** las fuentes y limitaciones del análisis.
+9. **Garantizar la calidad** mediante pruebas automatizadas unitarias, de integración y de navegador.
 
 ---
 
@@ -161,13 +186,26 @@ Desarrollar un dashboard web interactivo que permita consultar, filtrar, visuali
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
+> **Nota:** Además de lo representado, el sistema incorpora dos capas transversales no mostradas en el diagrama: la **capa ETL observable** (`quiron/etl/`) entre la carga de archivos y el DATA LAYER, y la **capa de autenticación** (`quiron/auth.py` + Supabase Auth como servicio externo) que protege todas las rutas en producción. Ambas se detallan en las secciones 12 y 13.
+
 ### 4.2 Patrón de Diseño
 
-El proyecto sigue una arquitectura **MVC adaptada para Dash**:
+El proyecto sigue una arquitectura **MVC adaptada para Dash**, ampliada con capas transversales de ETL y seguridad:
 
 - **Modelo (Model):** `loader.py`, `metrics.py`, `filtros.py` - Gestión de datos.
-- **Vista (View):** `layout.py`, `assets/` - Definición de la interfaz.
+- **Vista (View):** `layout.py`, `assets/`, `templates/` - Definición de la interfaz (dashboard multipágina y páginas de sesión/administración).
 - **Controlador (Controller):** `callbacks.py`, `asistente.py` - Lógica de interacción.
+- **Capa ETL (Pipeline):** `etl/pipeline.py`, `etl/observabilidad.py` - Orquestación instrumentada del proceso de datos con trazabilidad completa.
+- **Capa de Seguridad:** `auth.py` - Autenticación con Supabase, protección de rutas, cabeceras de seguridad y API administrativa.
+
+### 4.2.1 Arquitectura Multipágina
+
+El enrutamiento se hace con `dcc.Location` dentro de una única aplicación Dash. Las tres páginas (`#dashboard-page`, `#etl-page`, `#admin` vía Flask) comparten los `dcc.Store` de sesión, de modo que el dataset activo y el historial ETL se conservan al navegar entre dashboard y ETL dentro de la misma pestaña:
+
+| Store | Contenido | Persistencia |
+|-------|-----------|--------------|
+| `etl-dataset-activo` | Tabla resultante del último ETL válido (serializada) | Sesión de la pestaña |
+| `etl-traza` | Traza completa: pasos, mapeos, errores, historial acumulado, número de ejecución | Sesión de la pestaña |
 
 ### 4.3 Flujo de Arranque
 
@@ -195,12 +233,17 @@ El proyecto sigue una arquitectura **MVC adaptada para Dash**:
 | Categoría | Tecnología | Versión | Propósito |
 |-----------|------------|---------|-----------|
 | **Backend** | Python | 3.11 | Lenguaje principal |
-| **Framework Web** | Dash | 2.x | Aplicación web reactiva |
+| **Framework Web** | Dash | 2.17.1 | Aplicación web reactiva multipágina |
 | **Manipulación de Datos** | pandas | 2.2.2 | Procesamiento de CSV |
-| **Visualizaciones** | Plotly | 5.x | Gráficos y mapas interactivos |
-| **Servidor Producción** | Gunicorn | - | WSGI para despliegue |
-| **Pruebas E2E** | Playwright | Node.js | Pruebas de navegador |
+| **Visualizaciones** | Plotly | 5.24.1 | Gráficos y mapas interactivos |
+| **Servidor Producción** | Gunicorn | 22.0.0 | WSGI para despliegue |
+| **Validación JWT** | PyJWT[crypto] | 2.10.1 | Verificación de tokens de Supabase con JWKS |
+| **Variables de entorno** | python-dotenv | 1.0.1 | Carga de configuración local |
+| **Pruebas unitarias** | pytest / pytest-cov | 8.3.3 / 5.0.0 | Pruebas y cobertura |
+| **Pruebas E2E** | Playwright | Node.js (@playwright/test ^1.55) | Pruebas de navegador |
 | **IA/Asistente** | Google Gemini | API | Interpretación de comandos |
+| **Autenticación** | Supabase Auth | API + supabase-js | Correo/contraseña, MFA TOTP, SSO Google |
+| **Hosting Producción** | Vercel | - | Despliegue continuo desde GitHub |
 
 ### 5.2 Servicios Externos
 
@@ -210,6 +253,8 @@ El proyecto sigue una arquitectura **MVC adaptada para Dash**:
 | **OpenStreetMap Nominatim** | Geocodificación de direcciones (preprocesado) |
 | **Google Gemini** | Interpretación de solicitudes en lenguaje natural |
 | **Web Speech API** | Dictado y síntesis de voz en el navegador |
+| **Supabase Auth** | Autenticación, MFA TOTP, SSO con Google y API administrativa de usuarios |
+| **Vercel** | Hosting de producción con despliegue continuo por rama (`main` → producción, ramas feature → preview) |
 
 ### 5.3 Ejecución Rápida
 
@@ -235,9 +280,10 @@ npm run test:e2e
 ```
 Proyecto-fin-de-grado/
 │
-├── run.py                          # Punto de entrada principal
+├── run.py                          # Punto de entrada (local, Gunicorn y Vercel)
 ├── requirements.txt                # Dependencias Python
 ├── runtime.txt                     # Versión de Python (3.11)
+├── pyproject.toml                  # Config pytest/coverage y entrypoint Vercel
 ├── package.json                    # Dependencias Node/Playwright
 ├── playwright.config.js            # Configuración de pruebas E2E
 ├── .env.example                    # Plantilla de variables de entorno
@@ -245,19 +291,26 @@ Proyecto-fin-de-grado/
 ├── quiron/                         # 📦 PAQUETE PRINCIPAL
 │   ├── _init_.py                   # Inicializador del paquete
 │   ├── server.py                   # Orquestador de la aplicación
-│   ├── layout.py                   # Estructura visual (interfaz)
-│   ├── callbacks.py                # Lógica de interacciones
+│   ├── layout.py                   # Estructura visual multipágina (/, /etl)
+│   ├── callbacks.py                # Lógica de interacciones y carga ETL
+│   ├── auth.py                     # Autenticación Supabase, rutas protegidas, /admin API
 │   ├── filtros.py                  # Sistema de filtrado
 │   ├── exportacion.py              # Generación de CSV de salida
 │   ├── metadata.py                 # Trazabilidad y fuente de datos
 │   ├── asistente.py                # Integración con Gemini
 │   ├── theme.py                    # Configuración de colores/tema
 │   │
+│   ├── etl/                        # ⚙️ PIPELINE ETL OBSERVABLE
+│   │   ├── pipeline.py             # Orquestación instrumentada (ejecutar_etl)
+│   │   └── observabilidad.py       # Modelo de trazas: PasoETL, MapeoCampo, TrazaETL
+│   │
 │   ├── data/                       # 📁 CAPA DE DATOS
-│   │   ├── loader.py               # Carga y validación de CSV
+│   │   ├── loader.py               # Carga, limpieza y validación de CSV (instrumentada)
 │   │   ├── metrics.py              # Cálculo de indicadores
 │   │   ├── raw/                    # Archivos CSV originales
-│   │   │   └── cirugia-plastica-01_07_2026.csv
+│   │   │   ├── cirugia-plastica-01_07_2026.csv
+│   │   │   ├── osb_tipoprestadores.csv
+│   │   │   └── osb_ofertasrv-ips-urgencias.csv
 │   │   └── processed/              # Datos preprocesados
 │   │       └── sedes_geocodificadas.csv
 │   │
@@ -268,9 +321,15 @@ Proyecto-fin-de-grado/
 │   │   ├── normalizador.py         # Normalización de direcciones
 │   │   └── cliente.py              # Cliente de Nominatim
 │   │
+│   ├── templates/                  # 🔐 PÁGINAS DE SESIÓN (Flask/Jinja)
+│   │   ├── login.html              # Inicio de sesión, MFA TOTP, SSO Google
+│   │   ├── logout.html             # Cierre de sesión
+│   │   └── admin.html              # Panel de administración de usuarios
+│   │
 │   └── assets/                     # 🎨 RECURSOS FRONTEND
-│       ├── styles.css              # Estilos CSS del dashboard
+│       ├── styles.css              # Estilos CSS (dashboard, ETL, navegación)
 │       ├── asistente-voz.js        # Lógica de voz del navegador
+│       ├── auth-session.js         # Renovación de sesión y cookie HttpOnly
 │       └── mapa-tooltip.js         # Comportamiento del mapa
 │
 ├── tests/                          # 🧪 PRUEBAS
@@ -278,12 +337,20 @@ Proyecto-fin-de-grado/
 │   ├── test_exportacion.py         # Pruebas de exportación
 │   ├── test_metadata.py            # Pruebas de metadata
 │   ├── test_asistente.py           # Pruebas del asistente
+│   ├── test_mapa.py                # Pruebas del mapa
+│   ├── test_etl.py                 # Pruebas del pipeline ETL y su traza
+│   ├── test_etl_upload.py          # Integración: carga CSV vía endpoint Dash
+│   ├── test_auth.py                # Pruebas de autenticación y autorización
+│   ├── test_vercel_entrypoint.py   # Punto de entrada WSGI para Vercel
 │   ├── test_normalizador.py        # Pruebas de normalización
 │   └── e2e/                        # Pruebas de navegador
-│       ├── dashboard.spec.js       # Carga del dashboard
+│       ├── dashboard.spec.js       # Carga del dashboard y filtros
 │       ├── asistente.spec.js       # Asistente de voz
 │       ├── exportaciones.spec.js   # Descargas CSV
-│       └── support/                # Mock de Gemini y utilidades
+│       ├── ai.spec.js              # Gemini simulado (mock)
+│       ├── ai-live.spec.js         # Gemini real (opcional)
+│       ├── etl.spec.js             # Carga CSV y trazabilidad del proceso ETL
+│       └── support/                # Mock de Gemini y utilidades de evidencia
 │
 ├── scripts/                        # 🔧 SCRIPTS AUXILIARES
 │   └── enriquecer_coordenadas.py   # Proceso de geocodificación
@@ -297,10 +364,13 @@ Proyecto-fin-de-grado/
 | Módulo | Responsabilidad |
 |--------|-----------------|
 | `server.py` | Orquesta la creación de la app Dash, carga datos, calcula indicadores y registra callbacks |
-| `layout.py` | Define toda la estructura visual HTML/Dash sin lógica de datos |
-| `callbacks.py` | Conecta controles con acciones: filtrado, actualización de gráficos, descargas |
+| `layout.py` | Define toda la estructura visual multipágina (dashboard y área ETL) sin lógica de datos |
+| `callbacks.py` | Conecta controles con acciones: filtrado, gráficos, descargas, navegación entre páginas y carga de CSV al ETL |
+| `auth.py` | Carga configuración de Supabase, protege rutas y callbacks, valida JWT (JWKS), exige MFA `aal2`, expone API `/admin` |
+| `etl/pipeline.py` | Ejecuta el ETL instrumentado (`ejecutar_etl`): calcula huella SHA-256, orquesta etapas, captura errores sin interrumpir la app y serializa la traza |
+| `etl/observabilidad.py` | Modelo de observabilidad: `PasoETL` (orden, fase, nivel, métricas, duración), `MapeoCampo` (origen→destino) y `TrazaETL` (acumulador serializable) |
 | `filtros.py` | Implementa la lógica de filtrado y genera opciones válidas |
-| `loader.py` | Lee, valida y transforma los archivos CSV fuente |
+| `loader.py` | Lee, limpia, valida y transforma los archivos CSV fuente; cada etapa emite eventos a un observador opcional |
 | `metrics.py` | Calcula conteos y estadísticas agregadas |
 | `exportacion.py` | Prepara DataFrames para descarga en formato CSV |
 | `metadata.py` | Centraliza información de trazabilidad y advertencias metodológicas |
@@ -313,12 +383,13 @@ Proyecto-fin-de-grado/
 
 ### 7.1 Composición General de la Interfaz
 
-La interfaz de Quirón está organizada en **secciones verticales** que guían al usuario desde la información general hasta los detalles:
+La interfaz de Quirón es **multipágina**. El encabezado incluye un menú de navegación con los enlaces **Dashboard** (`/`, id `nav-dashboard`) y **Proceso ETL** (`/etl`, id `nav-etl`); el enlace activo se resalta con la clase CSS `activo`. La página del dashboard (`#dashboard-page`) está organizada en **secciones verticales** que guían al usuario desde la información general hasta los detalles:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  ⚕ QUIRÓN - Radar de oferta quirúrgica de las IPS de Bogotá D.C.   │
 │                    Fundación Universitaria Compensar                 │
+│              [ Dashboard ]  [ Proceso ETL ]   ← navegación          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                        PANEL DE INDICADORES (KPIs)                   │
 │  🏥 Sedes registradas │ ⚕ Oferta quirúrgica │ ▤ Códigos │ 🏛 Públicas │
@@ -654,6 +725,17 @@ Cuando el usuario modifica cualquier filtro:
 3. Las tablas descriptivas se refrescan
 4. El estado de filtros se muestra al usuario
 5. Las exportaciones reflejarán los datos filtrados
+
+### 8.5 Carga de Datos Propios (ETL en Vivo)
+
+Desde el área **Proceso ETL** (`/etl`), el usuario puede cargar un archivo CSV con la misma estructura de la fuente oficial. Si el ETL es válido, **todo el dashboard se actualiza en vivo** (indicadores, filtros, mapa, tablas y exportaciones) con el nuevo conjunto de datos; si falla, se conserva el último conjunto válido y los errores se muestran sin interrumpir la aplicación. El detalle completo está en la [sección 12](#12-proceso-etl-observable).
+
+### 8.6 Asociación de Coordenadas por Identidad
+
+Las coordenadas del mapa se asocian mediante **coincidencia única del nombre de sede y la dirección normalizados** (normalización Unicode NFKC + casefold + compactación de espacios), no por el orden de las filas ni por la huella binaria del archivo. Esto garantiza que:
+
+- Volver a guardar o **reordenar** un CSV no elimina coordenadas válidas.
+- Las sedes **ambiguas** (nombre+dirección duplicados) o **sin coincidencia** quedan sin coordenadas, evitando ubicaciones incorrectas en el mapa.
 
 ---
 
@@ -1034,9 +1116,167 @@ codigo_servicio, nombre_servicio, latitud, longitud, coordenada_valida
 
 ---
 
-## 12. Pruebas y Validación
+## 12. Proceso ETL Observable
 
-### 12.1 Estrategia de Pruebas
+### 12.1 Visión General
+
+El área **Proceso ETL** (`/etl`) convierte el proceso de datos —antes interno e invisible— en un **proceso auditable de extremo a extremo**. Cada ejecución del ETL (la inicial al arrancar la aplicación y cada carga de CSV del usuario) genera una **traza completa** con:
+
+- **Histórico de pasos** con fase, estado, duración en milisegundos, filas/columnas de entrada y salida, filas descartadas y detalle de cada etapa.
+- **Traza de mapeo de campos** que documenta cómo cada columna del origen se transforma en una columna del resultado.
+- **Errores** atribuidos a la etapa exacta que falló.
+- **Huella SHA-256** del contenido procesado, para identificar la fuente de forma inequívoca.
+- **Historial acumulado de ejecuciones** (hasta 500 pasos) con número de ejecución, mostrando la más reciente primero.
+
+### 12.2 Módulos de la Capa ETL
+
+| Módulo | Elementos clave |
+|--------|-----------------|
+| `quiron/etl/observabilidad.py` | `NivelTraza` (info/exito/advertencia/error), `PasoETL`, `MapeoCampo`, `TrazaETL` con serialización a diccionarios aptos para `dcc.Store` |
+| `quiron/etl/pipeline.py` | `ejecutar_etl(origen, nombre_fuente)` → `ResultadoETL` (tabla, traza, huella_sha256, nombre_fuente, exito); captura excepciones y las registra sin propagarlas |
+| `quiron/data/loader.py` | Etapas instrumentadas mediante un observador opcional (`_ejecutar_etapa`): cada operación emite eventos con fase, estado, métricas y duración |
+
+### 12.3 Etapas del Pipeline
+
+Cada ejecución registra, en orden, las siguientes etapas (los nombres son los visibles en el historial):
+
+| # | Etapa | Fase | Qué hace y qué reporta |
+|---|-------|------|------------------------|
+| 1 | Inicio | Proceso | Marca de inicio de la ejecución |
+| 2 | Lectura del contenido | Extracción | Bytes recibidos y nombre de la fuente; el archivo se procesa en memoria, nunca se guarda en disco |
+| 3 | Huella e identificación de fuente | Control | SHA-256 del contenido; indica si coincide byte a byte con el archivo incluido |
+| 4 | Lectura del CSV | Extracción | Parseo con separador `;` y UTF-8; filas y columnas recibidas |
+| 5 | Normalización de encabezados | Transformación | Compacta espacios/saltos de línea, descarta columnas `Unnamed`, **falla si la normalización produce encabezados duplicados** |
+| 6 | Validación de estructura | Validación | Verifica las 6 columnas obligatorias (`SEDE -NOMBRE`, `DIRECCION`, `TELEFONO`, `CORREO ELECTRÓNICO`, `NATURALEZA`, `TIPO DE PRESTADOR`) |
+| 7 | Limpieza de registros | Limpieza | Recorta y compacta espacios/saltos en campos de texto; **descarta filas sin nombre de sede** e informa cuántas |
+| 8 | Detección de columnas de servicio | Validación | Identifica columnas cuyo nombre inicia con código numérico; falla si no hay ninguna |
+| 9 | Transformación de formato ancho a largo | Transformación | Una fila por sede-servicio con marca `X`; reporta marcas aceptadas, valores no reconocidos (con muestra) y filas sin servicio marcado |
+| 10 | Lectura de referencia geográfica | Extracción | Lee `sedes_geocodificadas.csv` |
+| 11 | Validación de referencia geográfica | Validación | Verifica columnas obligatorias de la referencia |
+| 12 | Normalización y control de coordenadas | Limpieza | Convierte latitud/longitud a numérico y valida el campo `geocodificado` |
+| 13 | Normalización y depuración de identidades | Limpieza | Construye claves nombre+dirección normalizadas; descarta identidades vacías o ambiguas |
+| 14 | Cruce de coordenadas | Transformación | LEFT JOIN seguro por identidad única; reporta sedes coincidentes y registros con coordenadas válidas |
+| 15 | Control de integridad de la oferta | Validación | Rechaza salida vacía, columnas faltantes o registros sin `sede_id` |
+| 16 | Trazabilidad de mapeo | Transformación | Documenta las relaciones origen→destino del mapeo de campos |
+| 17 | Carga del conjunto transformado | Carga | Dataset final: registros, sedes únicas, sedes quirúrgicas y coordenadas válidas |
+
+**Valores de referencia con la fuente oficial:** 643 filas de origen, 49 filas descartadas por nombre de sede vacío, 594 marcas `X` aceptadas, 360 sedes quirúrgicas y 281 registros con coordenadas válidas.
+
+### 12.4 Interfaz del Área ETL
+
+| Componente | Id | Contenido |
+|------------|-----|-----------|
+| Carga de archivo | `etl-carga-csv` | `dcc.Upload` que acepta un único `.csv` de hasta **10 MB** |
+| Estado de la carga | `etl-estado` | Resultado de la última ejecución: número, fuente, duración y SHA-256 |
+| Panel de errores | `etl-panel-errores` | Tarjetas de error por etapa; oculto (`etl-oculto`) cuando no hay errores |
+| Histórico | `etl-tabla-historico` | Tabla con ejecución, orden, fase, paso, estado, duración, filas/columnas entrada-salida, descartes y detalle |
+| Traza de mapeo | `etl-tabla-mapeo` | Tabla campo origen → campo destino → transformación → filas |
+
+Comportamientos clave de la interfaz:
+
+- El **historial se ordena con la ejecución más reciente primero**, sin invertir el orden interno de sus pasos.
+- Las validaciones **previas al ETL** (extensión distinta de `.csv`, tamaño mayor a 10 MB, contenido no decodificable) también se registran en el historial como ejecuciones fallidas con el paso "Validación de archivo".
+- Ante cualquier fallo, **se conserva el último dataset válido y su traza de mapeo**: el dashboard nunca queda vacío ni inconsistente.
+- Las tablas tienen indicador de carga (`dcc.Loading`) mientras se procesa el archivo.
+
+### 12.5 Flujo de una Carga de Usuario
+
+```
+Usuario arrastra CSV → dcc.Upload (base64)
+        │
+        ▼
+callbacks.cargar_csv_etl()
+        ├─ Validar extensión .csv          ─┐
+        ├─ Validar tamaño ≤ 10 MB           ├─ Si falla: registrar en historial,
+        ├─ Decodificar base64               ─┘  conservar dataset vigente
+        ▼
+etl.pipeline.ejecutar_etl(bytes, nombre)
+        ├─ Ejecuta las 17 etapas instrumentadas
+        ├─ Errores → traza.errores con fase y paso exactos
+        ▼
+ResultadoETL
+        ├─ exito=True  → etl-dataset-activo actualizado
+        │                → KPIs, mapa, tablas y exportaciones en vivo
+        └─ exito=False → errores visibles + dataset anterior intacto
+        ▼
+_combinar_historial_etl() → acumula ejecuciones (máx. 500 pasos)
+```
+
+### 12.6 Privacidad y Límites
+
+- El CSV cargado **permanece solo en memoria y en el estado de la sesión del navegador**; no se escribe en el servidor.
+- El historial y el dataset procesado se conservan al navegar entre dashboard y ETL dentro de la misma sesión, pero **no persisten** al cerrar o recargar la pestaña (no hay base de datos de trazas).
+- No hay streaming en tiempo real de eventos: la traza se muestra al finalizar la ejecución.
+
+---
+
+## 13. Autenticación y Administración de Usuarios
+
+### 13.1 Visión General
+
+La aplicación integra **Supabase Auth** para proteger todas las rutas en producción:
+
+- **Correo y contraseña** con **MFA TOTP obligatorio** (nivel `aal2` para todas las cuentas).
+- **SSO con Google** (requiere habilitar el proveedor Google en Supabase y una allowlist de correos).
+- **Panel de administración** en `/admin` para gestionar usuarios.
+
+En desarrollo local la autenticación se desactiva con `QUIRON_AUTH_ENABLED=0`; en Vercel se **activa automáticamente** (variable `VERCEL`) y la aplicación falla al arrancar si falta configuración, evitando despliegues inseguros.
+
+### 13.2 Módulo `quiron/auth.py`
+
+| Componente | Función |
+|------------|---------|
+| `load_auth_settings()` | Valida variables de entorno; exige orígenes HTTPS y correos válidos |
+| `register_auth(app)` | Registra en Flask las rutas de sesión, protección global y cabeceras de seguridad |
+| `proteger_aplicacion()` | Middleware que exige sesión válida en todas las rutas Dash y sus callbacks |
+| `_verify_access_token()` | Valida el JWT contra las claves públicas **JWKS** de Supabase (PyJWT) |
+| `_authorize_claims()` | Exige `aal2` (MFA) y, para cuentas Google, pertenencia a la allowlist |
+| API `/admin` | Listar usuarios, invitar, enviar restablecimiento de contraseña, eliminar cuentas no administradoras |
+
+### 13.3 Flujo de Sesión
+
+1. El navegador inicia sesión con el **cliente oficial supabase-js** (fijado por versión con integrity hash) en `/login`.
+2. Tras validar credenciales y TOTP, el cliente envía el token al endpoint de sesión del servidor.
+3. El servidor verifica el JWT (JWKS, emisor, audiencia, `aal2`) y emite una **cookie `HttpOnly`, `SameSite=Lax` y `Secure`** bajo HTTPS.
+4. `assets/auth-session.js` renueva la cookie cuando supabase-js refresca el token; la sesión de Supabase vive solo en el `sessionStorage` de la pestaña.
+5. Al volver a una pestaña con cookie vencida, se intenta renovar la sesión antes de cargar el dashboard.
+
+### 13.4 Variables de Entorno de Producción
+
+| Variable | Propósito |
+|----------|-----------|
+| `SUPABASE_URL` | Origen HTTPS del proyecto Supabase |
+| `SUPABASE_ANON_KEY` | Clave pública (`sb_publishable_...` o `anon` heredada) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Clave privilegiada (`sb_secret_...` o `service_role`), **solo del lado servidor** |
+| `QUIRON_BASE_URL` | Origen público exacto de la aplicación |
+| `QUIRON_ADMIN_EMAILS` | Correos administradores iniciales (separados por comas) |
+| `QUIRON_GOOGLE_ALLOWED_EMAILS` | Allowlist para SSO Google; vacía desactiva el botón |
+
+Las claves modernas se envían solo en el encabezado `apikey`; las heredadas también como `Authorization: Bearer`.
+
+### 13.5 Panel de Administración (`/admin`)
+
+Permite a cuentas administradoras:
+
+- **Invitar usuarios** (reciben enlace para establecer contraseña; deben registrar TOTP en el primer acceso).
+- **Ver** correo, rol, fecha de creación y último inicio de sesión.
+- **Enviar enlaces** de restablecimiento de contraseña.
+- **Eliminar** cuentas no administradoras.
+
+La clave `SUPABASE_SERVICE_ROLE_KEY` se usa exclusivamente para estas operaciones del lado servidor y nunca se expone al navegador.
+
+### 13.6 Cabeceras y Prácticas de Seguridad
+
+- Cabeceras de seguridad agregadas a todas las respuestas (`agregar_cabeceras_seguridad`).
+- Validación de mismo origen en los endpoints de sesión.
+- Registro público de Supabase desactivado: solo cuentas creadas o invitadas.
+- El audio del dictado nunca sale del navegador; a Gemini solo llega texto.
+
+---
+
+## 14. Pruebas y Validación
+
+### 14.1 Estrategia de Pruebas
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -1044,37 +1284,37 @@ codigo_servicio, nombre_servicio, latitud, longitud, coordenada_valida
 │                                                                      │
 │                         ┌─────┐                                     │
 │                        /       \                                     │
-│                       /  E2E    \   ← Playwright (navegador)        │
-│                      /  (11+)    \                                   │
+│                       /  E2E    \   ← Playwright (12 escenarios)    │
+│                      /  (12)     \                                   │
 │                     ─────────────                                    │
 │                    /             \                                   │
-│                   /  Integración  \  ← Callbacks, asistente         │
-│                  /     (~20)       \                                 │
+│                   /  Integración  \  ← Carga ETL vía endpoint Dash, │
+│                  /                 \    autenticación, entrypoint    │
 │                 ─────────────────────                                │
 │                /                     \                               │
-│               /    Unitarias (~50+)   \  ← pytest                   │
-│              /  filtros, exportación,  \                             │
-│             /   metadata, normalizador  \                            │
+│               /   Unitarias (164)     \  ← pytest                   │
+│              / filtros, exportación,   \                             │
+│             / metadata, ETL, auth, mapa \                            │
 │            ─────────────────────────────                             │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 12.2 Pruebas Unitarias Python
+### 14.2 Pruebas Unitarias Python
 
 **Instalación:**
 ```bash
-python -m pip install pytest
+pip install -r requirements.txt   # incluye pytest y pytest-cov
 ```
 
 **Ejecución:**
 ```bash
-# Todas las pruebas
+# Todas las pruebas (164 recolectadas)
 python -m pytest
 
 # Una suite específica
-python -m pytest tests/test_filtros.py
+python -m pytest tests/test_etl.py
 
-# Con cobertura (requiere pytest-cov)
+# Con cobertura (configurada en pyproject.toml, con ramas)
 python -m pytest --cov=quiron
 ```
 
@@ -1087,8 +1327,13 @@ python -m pytest --cov=quiron
 | `test_metadata.py` | Metadata estática, valores dinámicos, fuente y cobertura |
 | `test_asistente.py` | Validación de comandos, allowlist, respuestas simuladas, manejo de errores |
 | `test_normalizador.py` | Normalización de direcciones bogotanas, casos reales |
+| `test_mapa.py` | Construcción del mapa y manejo de sedes sin coordenadas |
+| `test_etl.py` | Pipeline completo: éxito con archivo incluido y bytes en memoria, traza de limpieza y métricas por etapa, encabezados duplicados, marcas no reconocidas, salida vacía, atribución de errores a la etapa exacta, coordenadas por identidad (reordenamiento y ambigüedad), serialización de la traza |
+| `test_etl_upload.py` | Integración vía endpoint `/_dash-update-component`: carga válida activa el dataset, esquema inválido y extensión inválida conservan el estado y acumulan el historial |
+| `test_auth.py` | Configuración, validación de variables, autorización por claims, allowlist de Google, rol administrador |
+| `test_vercel_entrypoint.py` | El punto de entrada WSGI (`run.app`) sirve el dashboard |
 
-### 12.3 Pruebas E2E con Playwright
+### 14.3 Pruebas E2E con Playwright
 
 **Instalación:**
 ```bash
@@ -1100,24 +1345,24 @@ npm install
 npm run test:e2e
 ```
 
-**Escenarios cubiertos:**
+**Escenarios cubiertos (numeración de los archivos spec):**
 
-| # | Escenario | Descripción |
-|---|-----------|-------------|
-| 1 | Carga inicial | Dashboard se renderiza correctamente |
-| 2 | Filtrado | Aplicar filtros actualiza indicadores y mapa |
-| 3 | Restablecimiento | Limpiar filtros restaura estado inicial |
-| 4 | Búsqueda vacía | Búsqueda sin resultados muestra mensaje |
-| 5 | Descarga detalle | Archivo CSV se descarga correctamente |
-| 6 | Descarga servicio | Resumen por servicio funciona |
-| 7 | Descarga naturaleza | Resumen por naturaleza funciona |
-| 8 | Descarga metadata | Metadata se descarga |
-| 9 | Asistente descarga | Comando de descarga funciona |
-| 10 | Asistente texto | Solicitud procesada por Gemini mock |
-| 11 | Asistente voz | Dictado y síntesis funcionan |
-| 12* | Gemini real | Integración con API real (opcional) |
+| # | Escenario | Archivo | Descripción |
+|---|-----------|---------|-------------|
+| 01 | Carga inicial | `dashboard.spec.js` | Dashboard se renderiza correctamente |
+| 02 | Filtrar y restablecer | `dashboard.spec.js` | Aplicar y limpiar filtros actualiza indicadores y mapa |
+| 03 | Búsqueda sin coincidencias | `dashboard.spec.js` | Búsqueda vacía muestra mensaje y se recupera |
+| 04 | Descarga detalle | `exportaciones.spec.js` | Archivo CSV se descarga correctamente |
+| 05 | Descarga servicio | `exportaciones.spec.js` | Resumen por servicio funciona |
+| 06 | Descarga naturaleza | `exportaciones.spec.js` | Resumen por naturaleza funciona |
+| 07 | Descarga metadata | `exportaciones.spec.js` | Metadata se descarga |
+| 08 | Asistente descarga | `asistente.spec.js` | Comando de descarga local funciona |
+| 09 | Asistente texto | `ai.spec.js` | Solicitud procesada por Gemini mock aplica una acción |
+| 10 | Asistente voz | `asistente.spec.js` | Dictado y respuesta hablada funcionan |
+| 11* | Gemini real | `ai-live.spec.js` | Integración con API real (opcional) |
+| 12 | Proceso ETL | `etl.spec.js` | Navegación a `/etl`, histórico y mapeo iniciales, carga de CSV válido con actualización en vivo del dashboard, carga de CSV con esquema inválido (error visible + conservación del dataset) y persistencia al navegar entre vistas |
 
-> *La prueba 12 requiere configuración especial y consume cuota.
+> *La prueba 11 requiere `E2E_LIVE_GEMINI=1` y consume cuota.
 
 **Prueba con Gemini real (PowerShell):**
 ```powershell
@@ -1126,7 +1371,7 @@ npm run test:e2e
 Remove-Item Env:E2E_LIVE_GEMINI
 ```
 
-### 12.4 Requisitos de Entorno para Pruebas
+### 14.4 Requisitos de Entorno para Pruebas
 
 | Requisito | Windows | Linux/macOS |
 |-----------|---------|-------------|
@@ -1135,7 +1380,7 @@ Remove-Item Env:E2E_LIVE_GEMINI
 | Voz española | Voz del sistema | Voz del sistema |
 | Red | Teselas CARTO | Teselas CARTO |
 
-### 12.5 Artefactos de Prueba
+### 14.5 Artefactos de Prueba
 
 Los resultados se generan en `reportes/pruebas_funcionales/`:
 - Capturas PNG de cada paso
@@ -1144,9 +1389,9 @@ Los resultados se generan en `reportes/pruebas_funcionales/`:
 
 ---
 
-## 13. Despliegue y Configuración
+## 15. Despliegue y Configuración
 
-### 13.1 Ejecución Local
+### 15.1 Ejecución Local
 
 ```bash
 # 1. Clonar repositorio
@@ -1161,60 +1406,75 @@ source venv/bin/activate  # Linux/macOS
 # 3. Instalar dependencias
 pip install -r requirements.txt
 
-# 4. Configurar asistente (opcional)
+# 4. Configurar entorno local (asistente opcional, auth desactivada)
 copy .env.example .env
-# Editar .env y agregar GEMINI_API_KEY
+# Editar .env: GEMINI_API_KEY y dejar QUIRON_AUTH_ENABLED=0
 
 # 5. Ejecutar
 python run.py
 # → http://localhost:8050
 ```
 
-### 13.2 Despliegue en Render
+### 15.2 Despliegue en Producción (Vercel)
 
-**Paso 1:** Crear Web Service conectado al repositorio
+El proyecto se despliega en **Vercel** con integración continua desde GitHub:
 
-**Paso 2:** Configurar opciones:
+| Aspecto | Configuración |
+|---------|---------------|
+| **Proyecto Vercel** | `proyecto-fin-de-grado`, vinculado al repositorio GitHub |
+| **Rama de producción** | `main`: cada merge genera un deployment de producción |
+| **Ramas feature** | Generan deployments de **preview** automáticos |
+| **Entrypoint WSGI** | `run:app` (declarado en `pyproject.toml`, sección `[tool.vercel]`) |
+| **Python** | 3.11 (`runtime.txt`) |
+
+**Variables de entorno requeridas en Vercel** (la app falla al arrancar si faltan, porque `VERCEL` activa la autenticación):
+
+| Variable | Propósito |
+|----------|-----------|
+| `GEMINI_API_KEY` | Asistente (opcional) |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Conexión pública a Supabase |
+| `SUPABASE_SERVICE_ROLE_KEY` | API administrativa (solo servidor) |
+| `QUIRON_BASE_URL` | Origen público exacto del despliegue |
+| `QUIRON_ADMIN_EMAILS` | Administradores iniciales |
+| `QUIRON_GOOGLE_ALLOWED_EMAILS` | Allowlist de SSO Google |
+
+**Flujo de trabajo con ramas:** cada mejora se desarrolla en una rama `feat/...`, `fix/...` o `docs/...`, se valida con la suite completa y la prueba E2E correspondiente, y se integra a `main` para desplegar. Ejemplos reales del historial: `feat/auth-supabase`, `feat/separated-etl-workspace`, `feat/full-etl-process-observability`, `fix/supabase-modern-api-key-headers`, `fix/vercel-wsgi-entrypoint`.
+
+### 15.3 Despliegue Alternativo (Render)
 
 | Opción | Valor |
 |--------|-------|
-| **Language** | Python 3 |
 | **Build Command** | `pip install -r requirements.txt` |
 | **Start Command** | `gunicorn run:server --bind 0.0.0.0:$PORT --workers 1 --timeout 120` |
 | **Python Version** | 3.11 |
 
-**Paso 3:** Variables de entorno (si se usa asistente):
-
-| Variable | Valor |
-|----------|-------|
-| `GEMINI_API_KEY` | Tu clave de API |
-| `PYTHON_VERSION` | `3.11.11` (si runtime.txt no funciona) |
-
-### 13.3 Consideraciones de Producción
+### 15.4 Consideraciones de Producción
 
 > ⚠️ **Advertencias importantes:**
 
-1. **Sin autenticación:** La aplicación es pública si se despliega en Internet
-2. **Cuota de Gemini:** Controlar uso para evitar costos inesperados
-3. **Plan gratuito:** Render puede suspender servicios inactivos
-4. **Datos versionados:** Los CSV deben estar en el repositorio
-5. **Python 3.11:** pandas 2.2.2 puede fallar en versiones más nuevas
+1. **Autenticación obligatoria en Vercel:** La aplicación exige sesión válida con MFA (`aal2`) en todas las rutas; el arranque falla si falta configuración.
+2. **Cuota de Gemini:** Controlar uso para evitar costos inesperados.
+3. **Datos versionados:** Los CSV deben estar en el repositorio.
+4. **Python 3.11:** pandas 2.2.2 puede fallar en versiones más nuevas.
+5. **Clave service_role:** Nunca exponerla al navegador ni guardarla en el repositorio.
+6. **SSO Google:** Requiere habilitar el proveedor en Supabase (Authentication → Sign In / Providers), configurar las credenciales OAuth de Google Cloud y registrar las URLs de redirección permitidas.
 
 ---
 
-## 14. Limitaciones y Alcance
+## 16. Limitaciones y Alcance
 
-### 14.1 Limitaciones Técnicas
+### 16.1 Limitaciones Técnicas
 
 | Limitación | Descripción |
 |------------|-------------|
-| **Geocodificación incompleta** | No todas las sedes tienen coordenadas válidas |
-| **Dependencia de red** | Mapa requiere teselas de CARTO, Gemini requiere conexión |
+| **Geocodificación incompleta** | No todas las sedes tienen coordenadas válidas (281 de 360 sedes quirúrgicas, 78.1%) |
+| **Dependencia de red** | Mapa requiere teselas de CARTO, Gemini y Supabase requieren conexión |
 | **Voz del navegador** | Dictado depende de Web Speech API (Chrome/Edge) |
-| **Sin tiempo real** | Datos estáticos cargados al arrancar |
-| **Sin autenticación** | No hay control de acceso para usuarios |
+| **Datos al arrancar** | El dataset base se carga al inicio; el usuario puede sustituirlo cargando un CSV al ETL, pero el cambio vive solo en la sesión |
+| **Trazas ETL sin persistencia** | El historial de ejecuciones se conserva en la sesión del navegador (máx. 500 pasos) y se pierde al recargar |
+| **Carga ETL acotada** | Un único archivo `.csv` de máximo 10 MB por carga |
 
-### 14.2 Limitaciones Analíticas
+### 16.2 Limitaciones Analíticas
 
 > ⚠️ **Los resultados son oferta registrada, NO:**
 
@@ -1226,15 +1486,17 @@ python run.py
 - ❌ Resultados clínicos
 - ❌ Calidad del servicio
 
-### 14.3 Dependencias Externas
+### 16.3 Dependencias Externas
 
 | Servicio | Uso | Impacto si falla |
 |----------|-----|------------------|
 | CARTO | Teselas del mapa | Mapa no se renderiza |
 | Google Gemini | Interpretación de comandos | Asistente no funciona |
 | Nominatim | Geocodificación (preproceso) | Solo afecta regeneración de coordenadas |
+| Supabase Auth | Autenticación y administración | No es posible iniciar sesión en producción |
+| Vercel | Hosting de producción | Aplicación inaccesible en Internet |
 
-### 14.4 Fecha de Corte de Datos
+### 16.4 Fecha de Corte de Datos
 
 - **Fecha declarada:** 01/07/2026
 - **Origen:** Nombre del archivo fuente
@@ -1242,45 +1504,57 @@ python run.py
 
 ---
 
-## 15. Glosario Técnico
+## 17. Glosario Técnico
 
 | Término | Definición |
 |---------|------------|
+| **aal2** | Authenticator Assurance Level 2: nivel de sesión que exige segundo factor (MFA) |
 | **Callback** | Función que responde a eventos del usuario en Dash |
 | **Dash** | Framework Python para crear aplicaciones web analíticas |
 | **DataFrame** | Estructura de datos tabular de pandas |
 | **E2E** | End-to-End, pruebas que simulan usuario real |
+| **ETL** | Extract, Transform, Load: proceso de extracción, transformación y carga de datos |
 | **Geocodificación** | Proceso de convertir direcciones en coordenadas |
 | **Gunicorn** | Servidor WSGI para aplicaciones Python en producción |
+| **Huella SHA-256** | Resumen criptográfico que identifica de forma única el contenido de un archivo |
 | **IPS** | Institución Prestadora de Servicios de Salud |
+| **JWKS** | JSON Web Key Set: claves públicas para verificar firmas de JWT |
+| **JWT** | JSON Web Token: token firmado que transporta la identidad del usuario |
 | **KPI** | Key Performance Indicator, indicador clave |
 | **Layout** | Estructura visual de la interfaz |
+| **MFA / TOTP** | Autenticación multifactor con códigos temporales de una aplicación autenticadora |
 | **Nominatim** | Servicio de geocodificación de OpenStreetMap |
+| **Observabilidad** | Capacidad de inspeccionar el estado interno de un proceso a partir de sus trazas y métricas |
 | **Plotly** | Biblioteca de visualizaciones interactivas |
 | **Playwright** | Framework de automatización de navegadores |
-| **Render** | Plataforma de despliegue en la nube |
 | **Sede quirúrgica** | IPS que ofrece servicios con códigos 213 o 369 |
+| **SSO** | Single Sign-On: inicio de sesión con un proveedor de identidad externo (Google) |
+| **Supabase** | Plataforma backend con autenticación, base de datos y API administrativa |
 | **Tesela** | Fragmento de imagen que compone un mapa digital |
+| **Traza de mapeo** | Registro de cómo cada campo del origen se transforma en un campo del resultado |
 | **Trazabilidad** | Documentación del origen y procesamiento de datos |
+| **Vercel** | Plataforma de despliegue en la nube con integración continua |
 | **Web Speech API** | API del navegador para reconocimiento y síntesis de voz |
 | **WSGI** | Web Server Gateway Interface, estándar Python para servidores |
 
 ---
 
-## 16. Referencias
+## 18. Referencias
 
-### 16.1 Archivos Principales del Proyecto
+### 18.1 Archivos Principales del Proyecto
 
 | Archivo | Propósito |
 |---------|-----------|
-| `run.py` | Punto de entrada para ejecución local y Gunicorn |
+| `run.py` | Punto de entrada para ejecución local, Gunicorn y Vercel (`run:app`) |
 | `requirements.txt` | Dependencias Python del proyecto |
 | `runtime.txt` | Versión de Python (3.11) |
+| `pyproject.toml` | Configuración de pytest, coverage y entrypoint de Vercel |
 | `package.json` | Dependencias Node/Playwright |
-| `playwright.config.js` | Configuración de pruebas E2E |
-| `.env.example` | Plantilla de variables de entorno |
+| `playwright.config.js` | Configuración de pruebas E2E (servidor mock de Gemini incluido) |
+| `.env.example` | Plantilla de variables de entorno (Gemini + Supabase) |
+| `README.md` | Guía de uso, autenticación, ETL y pruebas |
 
-### 16.2 Documentación Relacionada
+### 18.2 Documentación Relacionada
 
 | Recurso | URL |
 |---------|-----|
@@ -1289,9 +1563,11 @@ python run.py
 | **Plotly Python** | https://plotly.com/python/ |
 | **Google Gemini API** | https://ai.google.dev/ |
 | **Playwright** | https://playwright.dev/ |
+| **Supabase Auth** | https://supabase.com/docs/guides/auth |
+| **Vercel** | https://vercel.com/docs |
 | **Render** | https://render.com/docs |
 
-### 16.3 Contacto del Proyecto
+### 18.3 Contacto del Proyecto
 
 - **Repositorio:** https://github.com/JhonAlejandroBetancourt/Proyecto-fin-de-grado
 - **Institución:** Fundación Universitaria Compensar
@@ -1384,7 +1660,7 @@ npm install
 npm run test:e2e
 ```
 
-### Configuración de Asistente
+### Configuración de Asistente y Autenticación Local
 
 ```bash
 # Copiar plantilla
@@ -1392,19 +1668,74 @@ copy .env.example .env
 
 # Editar .env y agregar:
 # GEMINI_API_KEY=tu_clave_aquí
+# QUIRON_AUTH_ENABLED=0   (desactiva la autenticación en desarrollo)
+```
+
+### Rutas de la Aplicación
+
+```
+/        → Dashboard (indicadores, filtros, mapa, exportación, asistente)
+/etl     → Proceso ETL (carga CSV, historial, traza de mapeo, errores)
+/admin   → Administración de usuarios (requiere rol administrador)
+/login   → Inicio de sesión (correo/contraseña + TOTP, o Google SSO)
+/logout  → Cierre de sesión
 ```
 
 ### Despliegue
 
 ```bash
-# Build command (Render)
-pip install -r requirements.txt
+# Producción: push/merge a main → Vercel despliega automáticamente
+git checkout main
+git merge feat/mi-rama
+git push origin main
 
-# Start command (Render)
-gunicorn run:server --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+# Alternativa Render:
+# Build:  pip install -r requirements.txt
+# Start:  gunicorn run:server --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 ```
 
 ---
 
+## Apéndice C: Guía para Actualizar el Documento de Grado (Word)
+
+Esta sección orienta a un asistente de IA que use este archivo para redactar o actualizar el documento formal del trabajo de grado.
+
+### C.1 Correspondencia Sugerida de Capítulos
+
+| Capítulo típico del documento | Secciones de esta guía |
+|-------------------------------|------------------------|
+| Introducción y planteamiento del problema | 1, 2 |
+| Objetivos | 3 |
+| Marco teórico / tecnológico | 5, 17 (glosario) |
+| Diseño y arquitectura | 4, 6, 7 |
+| Desarrollo e implementación | 8, 9, 10, 11, **12 (ETL)**, **13 (Autenticación)** |
+| Pruebas y validación | 14 |
+| Despliegue | 15 |
+| Limitaciones y trabajo futuro | 16 |
+| Referencias | 18 |
+
+### C.2 Novedades que Deben Reflejarse en el Documento
+
+Si el documento Word fue redactado antes de noviembre de 2026, estas funcionalidades probablemente **no están documentadas** y deben incorporarse:
+
+1. **Aplicación multipágina** con navegación entre `/`, `/etl` y `/admin` (sección 1.2.1).
+2. **Proceso ETL observable completo** (sección 12): 17 etapas instrumentadas, historial de ejecuciones, traza de mapeo de campos, huella SHA-256, métricas de limpieza y conservación del último dataset válido ante fallos.
+3. **Carga de CSV por el usuario** con actualización en vivo del dashboard (secciones 8.5 y 12.5).
+4. **Asociación de coordenadas por identidad** nombre+dirección en lugar de orden de filas (sección 8.6).
+5. **Autenticación con Supabase** (sección 13): correo/contraseña, MFA TOTP obligatoria (`aal2`), SSO Google con allowlist, cookie `HttpOnly` y validación JWT por JWKS.
+6. **Panel de administración de usuarios** `/admin` (sección 13.5).
+7. **Despliegue en producción en Vercel** con integración continua por ramas (sección 15.2); Render queda como alternativa.
+8. **Suite de pruebas ampliada**: 164 pruebas unitarias/integración y 12 escenarios E2E, incluyendo el escenario 12 de ETL (sección 14).
+
+### C.3 Criterios de Redacción
+
+- Usar las **cifras verificadas** de esta guía (589 sedes, 360 quirúrgicas, 281 georreferenciadas, 78.1% cobertura, 643 registros, códigos 213 y 369).
+- Mantener siempre la **advertencia metodológica**: oferta registrada ≠ disponibilidad efectiva.
+- Citar nombres reales de módulos, rutas e identificadores tal como aparecen aquí.
+- Las capturas de pantalla para el documento pueden tomarse de las evidencias en `reportes/pruebas_funcionales/` o del despliegue en producción.
+- No incluir claves, tokens ni valores de variables de entorno reales en el documento.
+
+---
+
 *Documento generado para el Trabajo de Grado - Fundación Universitaria Compensar*
-*Última actualización: Octubre 2026*
+*Última actualización: Noviembre 2026*
