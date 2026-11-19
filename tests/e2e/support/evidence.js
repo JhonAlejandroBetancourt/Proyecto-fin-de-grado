@@ -254,7 +254,10 @@ async function selectFirstService(page, evidence) {
     page.locator("#filtro-servicio"),
     "Abrir el selector de servicio quirúrgico.",
   );
-  const option = page.getByRole("option").first();
+  const option = page
+    .locator("#filtro-servicio")
+    .locator(".VirtualizedSelectOption, .Select-option, [role='option']")
+    .first();
   await option.waitFor({ state: "visible" });
   const label = await option.innerText();
   await clickAndMark(
