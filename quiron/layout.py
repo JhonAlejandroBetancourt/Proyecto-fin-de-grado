@@ -536,6 +536,7 @@ def _panel_filtros(
                                     "servicios"
                                 ]
                             ),
+                            maxHeight=320,
                             value=[],
                             multi=True,
                             clearable=True,
@@ -560,6 +561,7 @@ def _panel_filtros(
                                     "naturalezas"
                                 ]
                             ),
+                            maxHeight=320,
                             value=[],
                             multi=True,
                             clearable=True,
@@ -584,6 +586,7 @@ def _panel_filtros(
                                     "tipos_prestador"
                                 ]
                             ),
+                            maxHeight=320,
                             value=[],
                             multi=True,
                             clearable=True,
