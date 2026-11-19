@@ -208,6 +208,7 @@ def test_etl_registra_limpieza_y_metricas_de_cada_etapa():
         "Normalización de encabezados",
         "Validación de estructura",
         "Limpieza de registros",
+        "Análisis de calidad de datos",
         "Detección de columnas de servicio",
         "Transformación de formato ancho a largo",
         "Lectura de referencia geográfica",
@@ -586,3 +587,122 @@ def test_tabla_activa_fallback_sin_store():
     activa_vacia = _tabla_activa([], base)
 
     assert activa_vacia is base
+
+
+def test_etl_incluye_paso_calidad_de_datos():
+    """El ETL incluye un paso de análisis de calidad con score visible."""
+
+    resultado = ejecutar_etl()
+
+    pasos = {
+        paso.nombre: paso
+        for paso in resultado.traza.pasos
+    }
+
+    assert "Análisis de calidad de datos" in pasos, (
+        "El paso de análisis de calidad no se registró en la traza."
+    )
+
+    calidad = pasos["Análisis de calidad de datos"]
+
+    assert calidad.detalle is not None, (
+        "El paso de calidad no incluye detalle con métricas."
+    )
+    assert "Puntuación de calidad" in calidad.detalle
+    assert calidad.nivel in {
+        NivelTraza.EXITO,
+        NivelTraza.ADVERTENCIA,
+        NivelTraza.ERROR,
+    }
+    # El score debe aparecer como número en el detalle
+    import re
+    match = re.search(
+        r"Puntuación de calidad: (\d+(?:\.\d+)?)/100",
+        calidad.detalle,
+    )
+    assert match, (
+        "No se encontró el score en el formato esperado "
+        "'Puntuación de calidad: X/100'."
+    )
+    score = float(match.group(1))
+    assert 0.0 <= score <= 100.0, (
+        f"El score {score} está fuera del rango [0, 100]."
+    )
+
+
+def test_etl_calidad_detecta_duplicados():
+    """El análisis de calidad reporta nombres de sede duplicados."""
+
+    contenido = (
+        "SEDE -NOMBRE;DIRECCION;TELEFONO;"
+        "CORREO ELECTRÓNICO;NATURALEZA;"
+        "TIPO DE PRESTADOR;213 - CIRUGÍA PLÁSTICA\n"
+        "Clínica Duplicada;Calle 1;3001234567;"
+        "clinica@example.com;Privada;IPS;X\n"
+        "Clínica Duplicada;Calle 2;3001234568;"
+        "clinica2@example.com;Privada;IPS;X\n"
+    ).encode("utf-8")
+
+    resultado = ejecutar_etl(
+        origen=contenido,
+        nombre_fuente="duplicados.csv",
+    )
+
+    assert resultado.exito is True
+    pasos = {
+        paso.nombre: paso
+        for paso in resultado.traza.pasos
+    }
+    calidad = pasos["Análisis de calidad de datos"]
+    assert calidad.detalle is not None
+    # Debe indicar que hay registros con nombre duplicado
+    assert (
+        "duplicados" in calidad.detalle.lower()
+        or "comparten" in calidad.detalle.lower()
+    ), (
+        "El paso de calidad no reportó la existencia de "
+        "nombres de sede duplicados."
+    )
+
+
+def test_etl_justificacion_codigos_quirurgicos():
+    """La traza debe incluir la justificación del criterio de códigos."""
+
+    resultado = ejecutar_etl()
+
+    pasos = {
+        paso.nombre: paso
+        for paso in resultado.traza.pasos
+    }
+
+    deteccion = pasos.get("Detección de columnas de servicio")
+    assert deteccion is not None
+    assert deteccion.detalle is not None
+    # Debe mencionar la Resolución 2003 o el REPS como justificación
+    assert any(
+        kw in deteccion.detalle
+        for kw in ("2003", "REPS", "Resolución", "MinSalud")
+    ), (
+        "El detalle de detección de columnas no incluye la "
+        "justificación normativa del criterio de selección."
+    )
+
+
+def test_etl_carga_del_conjunto_menciona_idempotencia():
+    """El paso final debe declarar que el ETL es determinista."""
+
+    resultado = ejecutar_etl()
+
+    carga = next(
+        p
+        for p in resultado.traza.pasos
+        if p.nombre == "Carga del conjunto transformado"
+    )
+
+    assert carga.detalle is not None
+    assert any(
+        kw in carga.detalle.lower()
+        for kw in ("idempotenci", "determinista", "mismo resultado")
+    ), (
+        "El paso de carga no declara la garantía de idempotencia/determinismo."
+    )

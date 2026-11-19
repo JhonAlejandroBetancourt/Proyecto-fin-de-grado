@@ -410,7 +410,11 @@ def ejecutar_etl(
             detalle=(
                 f"{coordenadas_validas} registros quirúrgicos con "
                 "coordenadas válidas. El DataFrame queda disponible "
-                "para la aplicación."
+                "para la aplicación. "
+                "Garantía de idempotencia: la asociación geográfica "
+                "se realiza por coincidencia única de nombre y dirección "
+                "normalizados, no por orden de filas ni huella binaria; "
+                "la misma fuente produce siempre el mismo resultado."
             ),
             duracion_ms=(
                 (perf_counter() - inicio_carga)

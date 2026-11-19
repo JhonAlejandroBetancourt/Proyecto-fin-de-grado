@@ -17,6 +17,7 @@ originales.
 """
 
 import base64
+import hashlib
 import io
 import json
 import uuid
@@ -231,6 +232,45 @@ def _tarjeta_error(
             html.Span(mensaje),
         ],
     )
+
+
+def _traza_skip_carga(
+    nombre_fuente,
+    huella,
+):
+    """Traza para cuando se detecta un archivo idéntico al anterior.
+
+    El proceso no se re-ejecuta (idempotencia): la misma fuente
+    produce siempre el mismo resultado, por lo que re-procesar
+    sería un desperdicio de recursos y no aportaría información nueva.
+    El evento queda registrado en el historial para trazabilidad.
+    """
+
+    traza = TrazaETL()
+    traza.registrar(
+        "Verificación de huella SHA-256",
+        (
+            f"Archivo '{nombre_fuente}' idéntico al último procesado "
+            f"(SHA-256: {huella[:12]}…). "
+            "El ETL es idempotente: la misma fuente produce siempre "
+            "el mismo resultado. No se re-procesa para evitar trabajo "
+            "redundante; el conjunto de datos activo se conserva."
+        ),
+        nivel=NivelTraza.INFO,
+        fase="Control",
+        detalle=f"SHA-256 completo: {huella}",
+    )
+    datos = traza.como_dict()
+    datos.update(
+        {
+            "huella_sha256": huella,
+            "nombre_fuente": (
+                nombre_fuente or "archivo cargado"
+            ),
+            "exito": True,
+        }
+    )
+    return datos
 
 
 def _traza_error_carga(
@@ -920,6 +960,49 @@ def registrar_callbacks(
                     "El archivo es demasiado "
                     "grande. Se mantiene el "
                     "conjunto de datos vigente."
+                ),
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        # Deduplicación por huella SHA-256.
+        # Si el archivo tiene la misma huella que la última ejecución
+        # exitosa no se re-procesa: el ETL es idempotente y el resultado
+        # sería idéntico.  El evento queda registrado en el historial.
+        huella_nueva = hashlib.sha256(datos).hexdigest()
+        huella_anterior = (
+            traza_anterior or {}
+        ).get("huella_sha256")
+        if (
+            huella_anterior
+            and huella_nueva == huella_anterior
+        ):
+            traza_skip = _traza_skip_carga(
+                nombre_archivo,
+                huella_nueva,
+            )
+            traza_skip = _combinar_historial_etl(
+                traza_skip,
+                traza_anterior,
+            )
+            return (
+                no_update,
+                traza_skip,
+                _historial_etl_visible(traza_skip),
+                traza_skip["mapeos"],
+                [],
+                "etl-errores etl-oculto",
+                (
+                    f"'{nombre_archivo}' es idéntico "
+                    "al archivo ya procesado "
+                    f"(SHA-256: {huella_nueva[:12]}…). "
+                    "El conjunto de datos activo se "
+                    "conserva sin re-procesar."
                 ),
                 no_update,
                 no_update,
