@@ -165,6 +165,42 @@ test("03 - Búsqueda sin coincidencias y recuperación", async ({ page, evidence
   );
 });
 
+test("04 - Opciones de filtros visibles en escritorio y móvil", async ({ page, evidence }) => {
+  await openDashboard(page, evidence);
+  const filters = [
+    "#filtro-servicio",
+    "#filtro-naturaleza",
+    "#filtro-tipo-prestador",
+  ];
+
+  for (const viewport of [
+    { width: 1440, height: 1000 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+
+    for (const filter of filters) {
+      const dropdown = page.locator(filter);
+      await dropdown.scrollIntoViewIfNeeded();
+      await dropdown.click();
+
+      const option = dropdown
+        .locator(
+          ".VirtualizedSelectOption, .Select-option, [role='option']",
+        )
+        .first();
+      await expect(option).toBeVisible();
+      await expect(option).toBeInViewport({ ratio: 0.95 });
+      await option.click({ trial: true });
+      await page.keyboard.press("Escape");
+    }
+  }
+
+  evidence.addStep(
+    "Comprobar que los tres filtros muestran opciones completas y visibles en escritorio y móvil.",
+  );
+});
+
 function parseDashboardCount(value) {
   const digits = value.replace(/[^\d]/g, "");
   if (!digits) {
