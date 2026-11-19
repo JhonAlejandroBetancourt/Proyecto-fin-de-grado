@@ -196,3 +196,108 @@ def test_upload_valido_y_esquema_invalido_conservan_estado_etl(
     assert respuesta_extension_invalida[
         "etl-tabla-mapeo"
     ]["data"] == mapeos
+
+
+def test_archivo_duplicado_no_se_reprocesa(
+    dash_app,
+):
+    """Subir el mismo archivo dos veces no ejecuta el ETL la segunda vez.
+
+    La deduplicación por SHA-256 garantiza idempotencia:
+    el sistema detecta que la fuente es idéntica a la última procesada
+    y registra el evento en el historial sin re-ejecutar las etapas.
+    """
+
+    csv_valido = (
+        "SEDE -NOMBRE;DIRECCION;TELEFONO;"
+        "CORREO ELECTRÓNICO;NATURALEZA;"
+        "TIPO DE PRESTADOR;"
+        "213 - CIRUGÍA PLÁSTICA Y ESTÉTICA\n"
+        "Clínica Original;Calle 10 # 1-20;6011234567;"
+        "original@example.com;Privada;IPS;X\n"
+    ).encode("utf-8")
+
+    # Primera carga: procesamiento completo
+    respuesta_primera = _callback_response(
+        dash_app,
+        "oferta-original.csv",
+        csv_valido,
+    )
+
+    dataset_primera = respuesta_primera[
+        "etl-dataset-activo"
+    ]["data"]
+    traza_primera = respuesta_primera[
+        "etl-traza"
+    ]["data"]
+    n_ejecucion_primera = traza_primera[
+        "numero_ejecucion"
+    ]
+    mapeos_primera = respuesta_primera[
+        "etl-tabla-mapeo"
+    ]["data"]
+
+    assert len(dataset_primera) > 0
+
+    # Segunda carga: mismo contenido → debe omitir el re-procesamiento
+    respuesta_segunda = _callback_response(
+        dash_app,
+        "oferta-original.csv",
+        csv_valido,
+        previous_trace=traza_primera,
+    )
+
+    # El dataset activo NO debe cambiar (no se re-procesó)
+    assert "etl-dataset-activo" not in respuesta_segunda, (
+        "El dataset fue actualizado a pesar de que el archivo "
+        "es idéntico al anterior (misma huella SHA-256)."
+    )
+
+    # El número de ejecución sí avanza (el evento queda en el historial)
+    traza_segunda = respuesta_segunda[
+        "etl-traza"
+    ]["data"]
+    assert (
+        traza_segunda["numero_ejecucion"]
+        == n_ejecucion_primera + 1
+    ), (
+        "El número de ejecución debería incrementarse al "
+        "registrar el skip en el historial."
+    )
+
+    # El mapeo de campos se conserva del procesamiento previo
+    assert (
+        respuesta_segunda["etl-tabla-mapeo"]["data"]
+        == mapeos_primera
+    )
+
+    # El estado informa que se omitió el re-procesamiento
+    estado = respuesta_segunda["etl-estado"]["children"]
+    assert any(
+        kw in estado
+        for kw in ("idéntico", "idempotencia", "conserva")
+    ), (
+        f"El estado '{estado}' no indica que se omitió el re-procesamiento."
+    )
+
+    # El historial registra el paso de verificación de huella
+    historial = respuesta_segunda[
+        "etl-tabla-historico"
+    ]["data"]
+    nombres_pasos = {
+        paso["nombre"]
+        for paso in historial
+        if paso.get("ejecucion") == n_ejecucion_primera + 1
+    }
+    assert any(
+        "huella" in nombre.lower() or "sha" in nombre.lower()
+        for nombre in nombres_pasos
+    ), (
+        "El historial no registró el paso de verificación de huella SHA-256."
+    )
+
+    # El panel de errores no muestra error
+    assert (
+        respuesta_segunda["etl-panel-errores"]["className"]
+        == "etl-errores etl-oculto"
+    )

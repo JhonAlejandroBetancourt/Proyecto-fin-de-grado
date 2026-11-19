@@ -51,6 +51,20 @@ CODIGOS_QUIRURGICOS = {
     "369",
 }
 
+# Justificación del alcance: se seleccionan únicamente los códigos del
+# Registro Especial de Prestadores de Servicios de Salud (REPS) que
+# corresponden a procedimientos de Cirugía Plástica y Estética según la
+# Resolución 2003 de 2014 del Ministerio de Salud y Protección Social.
+# Código 213: Cirugía plástica y estética (procedimientos médico-quirúrgicos).
+# Código 369: Cirugía plástica y estética (procedimientos estéticos).
+# El dataset fuente (SDS Bogotá, corte 01/07/2026) contiene solo estos dos
+# códigos habilitados en Bogotá D.C. para esta especialidad.
+JUSTIFICACION_CODIGOS_QUIRURGICOS = (
+    "Códigos 213 y 369 según la Resolución 2003 de 2014 (MinSalud): "
+    "únicos códigos habilitados de Cirugía Plástica y Estética "
+    "registrados en la SDS Bogotá a corte 01/07/2026."
+)
+
 COLUMNAS_CIRUGIA_OBLIGATORIAS = {
     "SEDE -NOMBRE",
     "DIRECCION",
@@ -481,6 +495,159 @@ def cargar_cirugia_plastica(
         },
     )
 
+    def analizar_calidad_datos():
+        """Evalúa completitud, unicidad y validez básica del dataset.
+
+        Esta etapa no modifica los datos; sólo produce métricas que
+        quedan en la traza para auditoría y defensa metodológica.
+        """
+
+        campos_base = [
+            "SEDE -NOMBRE",
+            "DIRECCION",
+            "TELEFONO",
+            "CORREO ELECTRÓNICO",
+            "NATURALEZA",
+            "TIPO DE PRESTADOR",
+        ]
+        completitud = {
+            campo: round(
+                (
+                    crudo[campo].notna()
+                    & crudo[campo].str.strip().ne("")
+                ).sum()
+                / max(len(crudo), 1)
+                * 100,
+                1,
+            )
+            for campo in campos_base
+            if campo in crudo.columns
+        }
+        completitud_prom = (
+            sum(completitud.values()) / len(completitud)
+            if completitud
+            else 0.0
+        )
+
+        # Unicidad: detecta filas que comparten nombre de sede
+        # normalizado (posibles duplicados o sucursales sin distinguir).
+        nombres_norm = crudo["SEDE -NOMBRE"].map(
+            _normalizar_clave_sede
+        )
+        n_duplicados = int(
+            nombres_norm.duplicated(keep=False).sum()
+        )
+
+        # Validez de teléfono: mínimo 7 dígitos numéricos
+        tel_col = (
+            crudo["TELEFONO"].fillna("")
+            if "TELEFONO" in crudo.columns
+            else pd.Series([""] * len(crudo))
+        )
+        pct_tel = round(
+            tel_col.str.replace(r"\D", "", regex=True)
+            .str.len()
+            .ge(7)
+            .sum()
+            / max(len(crudo), 1)
+            * 100,
+            1,
+        )
+
+        # Validez de correo: contiene '@'
+        correo_col = (
+            crudo["CORREO ELECTRÓNICO"].fillna("")
+            if "CORREO ELECTRÓNICO" in crudo.columns
+            else pd.Series([""] * len(crudo))
+        )
+        pct_correo = round(
+            correo_col.str.contains("@", na=False).sum()
+            / max(len(crudo), 1)
+            * 100,
+            1,
+        )
+
+        # Score ponderado (completitud 50 %, unicidad 20 %,
+        # teléfono 15 %, correo 15 %)
+        unicidad_pct = max(
+            0.0,
+            100.0
+            - n_duplicados / max(len(crudo), 1) * 100,
+        )
+        score = round(
+            completitud_prom * 0.5
+            + unicidad_pct * 0.2
+            + pct_tel * 0.15
+            + pct_correo * 0.15,
+            1,
+        )
+
+        campos_incompletos = [
+            f"{campo}: {pct}%"
+            for campo, pct in sorted(
+                completitud.items(), key=lambda x: x[1]
+            )
+            if pct < 100.0
+        ]
+
+        return {
+            "score": score,
+            "completitud_prom": completitud_prom,
+            "pct_tel": pct_tel,
+            "pct_correo": pct_correo,
+            "n_duplicados": n_duplicados,
+            "campos_incompletos": campos_incompletos,
+        }
+
+    def _metricas_calidad(resultado):
+        score = resultado["score"]
+        nivel = (
+            "exito"
+            if score >= 90
+            else "advertencia"
+            if score >= 70
+            else "error"
+        )
+        duplicados_msg = (
+            f" {resultado['n_duplicados']} registros comparten "
+            "nombre de sede normalizado (posibles duplicados o "
+            "sucursales)."
+            if resultado["n_duplicados"] > 0
+            else " Sin registros con nombre de sede duplicado."
+        )
+        campos_msg = (
+            f"Campos con valores faltantes: "
+            f"{'; '.join(resultado['campos_incompletos'])}."
+            if resultado["campos_incompletos"]
+            else "Todos los campos obligatorios al 100%."
+        )
+        return {
+            "nivel": nivel,
+            "filas_entrada": len(crudo),
+            "filas_salida": len(crudo),
+            "detalle": (
+                f"Puntuación de calidad: {score}/100. "
+                f"Completitud promedio: {resultado['completitud_prom']:.1f}%. "
+                f"Teléfonos válidos (≥7 dígitos): {resultado['pct_tel']}%. "
+                f"Correos con '@': {resultado['pct_correo']}%."
+                f"{duplicados_msg} {campos_msg}"
+            ),
+        }
+
+    _ejecutar_etapa(
+        observador,
+        "Análisis",
+        "Análisis de calidad de datos",
+        analizar_calidad_datos,
+        lambda r: (
+            f"Puntuación de calidad: {r['score']}/100 "
+            f"(completitud: {r['completitud_prom']:.1f}%, "
+            f"teléfonos válidos: {r['pct_tel']}%, "
+            f"correos válidos: {r['pct_correo']}%)."
+        ),
+        _metricas_calidad,
+    )
+
     def detectar_columnas_servicio():
         columnas = _columnas_de_servicio(
             crudo.columns
@@ -499,13 +666,16 @@ def cargar_cirugia_plastica(
         detectar_columnas_servicio,
         lambda columnas: (
             f"Se identificaron {len(columnas)} columnas de servicio "
-            "por su código numérico."
+            f"por su código numérico. "
+            f"Criterio de codificación quirúrgica aplicado: "
+            f"{JUSTIFICACION_CODIGOS_QUIRURGICOS}"
         ),
         lambda columnas: {
             "filas_entrada": len(crudo),
             "filas_salida": len(crudo),
             "columnas_entrada": len(crudo.columns),
             "columnas_salida": len(columnas),
+            "detalle": JUSTIFICACION_CODIGOS_QUIRURGICOS,
         },
     )
 
